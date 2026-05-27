@@ -5,16 +5,16 @@ import matplotlib.pyplot as plt
 def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr',
               interpolation='spline36', center_scale=True):
     """
-    Plot multiple dataset for spectral and evolution data
-    :param data: List of spectra or dipole expectation values or any other variable of interest. Must be float data type
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title_list: List of titles for each plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :param center_scale: Shift individual datasets to sent center value to zero.
-    :return: Does not return anything
+    为频谱、演化结果等数据绘制多子图。
+    :param data: 频谱、偶极期望值或其他感兴趣量组成的列表，需为浮点型数据
+    :param scan_range: 两个坐标轴的最小/最大值，格式为 [xmin, xmax, ymin, ymax]
+    :param labels: 坐标轴标签列表
+    :param title_list: 每个子图的标题列表
+    :param scale: 数据缩放方式，可选 'linear' 或 'log'
+    :param color_map: 色图名称
+    :param interpolation: 图像插值方式
+    :param center_scale: 是否将每个数据集平移，使其中心值移到零附近
+    :return: 无返回值
     """
     if data is None:
         print('Nothing to plot, kindly provide the data')
@@ -26,7 +26,7 @@ def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='l
         print('titles not given')
         title_list = [str(x + 1) for x in range(len(data))]
 
-    num_plots = len(data)  # number of plots (depends on the length of data list)
+    num_plots = len(data)  # 子图数量取决于数据列表长度
     if num_plots <= 3:
         rows = 1
         cols = num_plots
@@ -63,15 +63,15 @@ def multiplot(data=None, scan_range=None, labels=None, title_list=None, scale='l
 
 def plot(data=None, scan_range=None, labels=None, title=None, scale='linear', color_map='viridis', interpolation='spline36'):
     """
-    Plot singe dataset for spectral and evolution data
-    :param data: Single dataset. Must be float
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title: Title the plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :return: Does not return anything
+    为频谱、演化结果等数据绘制单张图。
+    :param data: 单个数据集，需为浮点型
+    :param scan_range: 两个坐标轴的最小/最大值，格式为 [xmin, xmax, ymin, ymax]
+    :param labels: 坐标轴标签列表
+    :param title: 图标题
+    :param scale: 数据缩放方式，可选 'linear' 或 'log'
+    :param color_map: 色图名称
+    :param interpolation: 图像插值方式
+    :return: 无返回值
     """
     if data is None:
         print('Nothing to plot, kindly provide the data')
@@ -100,9 +100,9 @@ def plot(data=None, scan_range=None, labels=None, title=None, scale='linear', co
 
 def log_scale(z):
     """
-    Simple function for rescaling the 2D input matrix to log scale.
-    Note: the negative numbers are downshifted by 1 and the positive numbers are upshifted by 1 to remove numbers
-    between -1 and 1.
+    一个把二维输入矩阵转换到对数尺度的简单函数。
+    注意：负数会先向下平移 1，正数会先向上平移 1，
+    这样可以避开 -1 到 1 之间导致对数不稳定的区间。
     """
     x, y = np.shape(z)
     for n in range(x):
@@ -116,15 +116,15 @@ def log_scale(z):
 
 def pop_plot(data=None, scan_range=None, labels=None, title_list=None, scale='linear', color_map='PuOr', interpolation='spline36'):
     """
-    Plot multiple dataset for spectral and evolution data
-    :param data: List of spectra or dipole expectation values or any other variable of interest
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title_list: List of titles for each plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :return: Does not return anything
+    为频谱、演化结果等数据绘制多张 population 相关图像。
+    :param data: 频谱、偶极期望值或其他感兴趣量组成的列表
+    :param scan_range: 两个坐标轴的最小/最大值，格式为 [xmin, xmax, ymin, ymax]
+    :param labels: 坐标轴标签列表
+    :param title_list: 每个子图的标题列表
+    :param scale: 数据缩放方式，可选 'linear' 或 'log'
+    :param color_map: 色图名称
+    :param interpolation: 图像插值方式
+    :return: 无返回值
     """
     if data is None:
         print('Nothing to plot, kindly provide the data')
@@ -136,7 +136,7 @@ def pop_plot(data=None, scan_range=None, labels=None, title_list=None, scale='li
         print('titles not given')
         title_list = [str(x + 1) for x in range(len(data))]
 
-    num_plots = len(data)  # number of plots (depends on the length of data list)
+    num_plots = len(data)  # 子图数量取决于数据列表长度
     if num_plots <= 3:
         rows = 1
         cols = num_plots
@@ -169,19 +169,19 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
                interpolation='spline36', center_scale=True, plot_sum=True, plot_quadrant='All', invert_y=True,
                diagonals=[True, True]):
     """
-    Plot multiple spectra with real, imaginary and abs values
-    :param data: List of spectra or dipole expectation values or any other variable of interest. Must be float data type
-    :param scan_range: The min and max of both axis in the format [xmin, xmax, ymin, ymax]
-    :param labels: List of label for each axis
-    :param title_list: List of titles for each plot
-    :param scale: Scaling of the data points, two choices are 'linear' and 'log'
-    :param color_map: Choice of colormap
-    :param interpolation: Interpolation for points in plot.
-    :param center_scale: Shift individual datasets to sent center value to zero.
-    :param plot_sum: plots the total sum of the input data sets with separate graphs for real, imag and abs values
-    :param plot_quadrant: only plots the selected quadrant(s) for the graphs
-    :param invert_y: flips the y-axis by converting -ve values to +ve
-    :return: Does not return anything
+    将多组频谱按实部、虚部和绝对值分别绘制出来。
+    :param data: 频谱、偶极期望值或其他感兴趣量组成的列表，需为浮点型数据
+    :param scan_range: 两个坐标轴的最小/最大值，格式为 [xmin, xmax, ymin, ymax]
+    :param labels: 坐标轴标签列表
+    :param title_list: 每组图的标题列表
+    :param scale: 数据缩放方式，可选 'linear' 或 'log'
+    :param color_map: 色图名称
+    :param interpolation: 图像插值方式
+    :param center_scale: 是否将每个数据集平移，使其中心值移到零附近
+    :param plot_sum: 是否额外绘制所有输入数据求和后的实部、虚部和绝对值
+    :param plot_quadrant: 只绘制指定象限，或绘制全部
+    :param invert_y: 是否翻转 y 轴，把负值方向转成正向显示
+    :return: 无返回值
     """
     if spectra_list is None:
         print('Nothing to plot, kindly provide the data')
@@ -211,7 +211,7 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
         spectra_list = [np.flip(x, 1) for x in spectra_list]
         scan_range[2], scan_range[3] = -scan_range[3], -scan_range[2]
 
-    # separating the real, imaginary and absolute values of each spectrum
+    # 分离每个频谱的实部、虚部和绝对值
     data_real = np.real(spectra_list)
     data_imag = np.imag(spectra_list)
     data_abs = np.abs(spectra_list)
@@ -230,7 +230,7 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
 
 
 
-    num_plots = len(data) # number of plots (depends on the length of data list)
+    num_plots = len(data) # 子图数量取决于数据列表长度
     if num_plots <= 3:
         rows = 1
         cols = num_plots
@@ -257,7 +257,7 @@ def silva_plot(spectra_list=None, scan_range=None, labels=None, title_list=None,
         #subplot_title = title + ' ' + titles[k % 3]
         subplot_title = (title + ' ' + titles[k % 3])
         axes[-1].set_title(subplot_title)
-        # drawing diagonal lines
+        # 绘制对角线
         if diagonals[0]:
             plt.plot([scan_range[0], scan_range[1]], [scan_range[3], scan_range[2]], '--', color="black", linewidth=0.5)
         if diagonals[1]:

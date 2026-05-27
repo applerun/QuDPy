@@ -1,4 +1,4 @@
-# QuDPy:
-## A simple package for nonlinear spectroscopy with quantum dynamics provided by qutip.
+# QuDPy
+## 一个基于 `qutip` 的简单非线性光谱量子动力学计算包。
 
-### See example_calculations for a detailed example.
+### 更详细的使用方式可参考 `examples` 中的示例。
