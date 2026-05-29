@@ -16,39 +16,57 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sjh_learn.utils import (
-    ParameterSweep,
+    ParaNormalizer,
+    PhysicalParameterSweep,
+    PhysicalParams,
     default_output_path,
-    run_parameter_sweep,
+    run_physical_parameter_sweep,
+    save_parameter_summary,
     save_comparison_plot,
 )
 
 
-
-SWEEP = ParameterSweep(
-    t_final=120.0,
-    dt=0.01,
-    hbar=1.0,
-    epsilon_1=0.0,
-    dipole=0.08,
-    omega_drive=1.0,
-    field_amplitudes=(0.5, 1.0, 2.0),
-    detunings=(0.0, 0.2),
+BASE_PHYSICAL_PARAMS = PhysicalParams(
+    energy_gap_eV=1.55,
+    laser_energy_eV=1.55,
+    dipole_D=3.0,
+    field_MV_per_cm=0.3,
+    t_start_fs=0.0,
+    t_end_fs=1000.0,
+    dt_fs=0.5,
+    T1_fs=500.0,
+    T2_fs=None,
+    Tphi_fs=300.0,
+    pulse_center_fs=None,
+    pulse_sigma_fs=None,
 )
 
-OUTPUT_DIR = Path("optical_bloch_plots")
+PHYSICAL_SWEEP = PhysicalParameterSweep(
+    base_params=BASE_PHYSICAL_PARAMS,
+    field_MV_per_cm_values=(0.5, 1, 2),
+    laser_energy_eV_values=(1.55, 1.57),
+)
+
+NORMALIZER = ParaNormalizer(time_scale_fs=None, auto_scale=True)
+
+OUTPUT_DIR = Path(__file__).resolve().parent / "optical_bloch_plots"
+SUMMARY_PATH = OUTPUT_DIR / "parameter_summary.json"
 
 
 def main() -> None:
     """运行参数扫描并保存图像。"""
-    print("两能级光学 Bloch 演化示例")
-    print(f"总时间           : {SWEEP.t_final}")
-    print(f"时间步长         : {SWEEP.dt}")
-    print(f"hbar             : {SWEEP.hbar}")
-    print(f"驱动频率         : {SWEEP.omega_drive}")
-    print(f"驱动振幅列表     : {list(SWEEP.field_amplitudes)}")
-    print(f"失谐量列表       : {list(SWEEP.detunings)}")
+    print("两能级光学 Bloch 演化示例（真实物理参数输入）")
+    print(f"energy_gap_eV     : {BASE_PHYSICAL_PARAMS.energy_gap_eV}")
+    print(f"laser_energy_eV   : {BASE_PHYSICAL_PARAMS.laser_energy_eV}")
+    print(f"dipole_D          : {BASE_PHYSICAL_PARAMS.dipole_D}")
+    print(f"field_MV_per_cm   : {list(PHYSICAL_SWEEP.field_MV_per_cm_values)}")
+    print(f"laser scan eV     : {list(PHYSICAL_SWEEP.laser_energy_eV_values)}")
+    print(f"time range fs     : {BASE_PHYSICAL_PARAMS.t_start_fs} -> {BASE_PHYSICAL_PARAMS.t_end_fs}")
+    print(f"dt_fs             : {BASE_PHYSICAL_PARAMS.dt_fs}")
+    print(f"T1_fs             : {BASE_PHYSICAL_PARAMS.T1_fs}")
+    print(f"Tphi_fs           : {BASE_PHYSICAL_PARAMS.Tphi_fs}")
 
-    results = run_parameter_sweep(SWEEP)
+    results = run_physical_parameter_sweep(PHYSICAL_SWEEP, normalizer=NORMALIZER)
 
     print("\n逐个参数点结果：")
     saved_paths: list[Path] = []
@@ -62,12 +80,18 @@ def main() -> None:
             f"Delta = {result.parameters.detuning:.4f}"
         )
         print(f"输出图像         : {output_path}")
+        if result.solver_params is not None:
+            print(NORMALIZER.summary_text(result.physical_params, result.solver_params))
         for key, value in result.summary_dict().items():
             print(f"{key:<18}: {value}")
+        print(f"sanity_checks      : {result.sanity_checks}")
 
     print("\n已生成图像：")
     for output_path in saved_paths:
         print(output_path)
+
+    summary_path = save_parameter_summary(results, SUMMARY_PATH)
+    print(f"\n参数摘要已保存   : {summary_path}")
 
 
 if __name__ == "__main__":
