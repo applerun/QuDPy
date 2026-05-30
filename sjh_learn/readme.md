@@ -116,3 +116,8 @@ conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strengt
 ```
 
 当前阶段不引入 UFSS、多能级 RWA、复杂真实脉冲或吸收光谱；重点是 two-level RWA 基础 example、input drive preview 和结果输出整理。
+
+## RWA Examples
+
+- `rwa_01_field_strength.py`: field strength controls Rabi frequency.
+- `rwa_02_dephasing.py`: pure dephasing damps coherence and Rabi oscillations without adding T1 population relaxation.

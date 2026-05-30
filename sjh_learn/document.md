@@ -184,3 +184,8 @@ rwa = run_rwa_case(parameters)
 总图 `comparison.png` 至少包含 `Omega(t)`、`rho22(t)`、`abs_rho12(t)`。`results.csv` 记录 `field_MV_per_cm`、`rabi_fs_inv`、`rabi_code`、`max_rho22`、`final_rho22`、`max_abs_rho12`、`final_abs_rho12`。
 
 预期物理结果：场强越大，Rabi frequency 越大，`rho22` 振荡周期越短；无 relaxation / dephasing 时振荡不应衰减；共振且强度足够时 `rho22` 可接近 1。
+
+## RWA Examples
+
+- `rwa_01_field_strength.py`: field strength controls Rabi frequency.
+- `rwa_02_dephasing.py`: pure dephasing damps coherence and Rabi oscillations without adding T1 population relaxation.

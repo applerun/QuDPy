@@ -20,6 +20,7 @@ from sjh_learn.examples.rwa_common import (
     save_case_result,
     write_results_csv,
 )
+from sjh_learn.utils import save_results_components_long
 
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "rwa_01_field_strength"
@@ -42,6 +43,7 @@ def main() -> None:
 
     fig, _axes = plot_rwa_field_strength_summary(results, labels, OUTPUT_DIR / "comparison.png")
     plt.close(fig)
+    save_results_components_long(results, OUTPUT_DIR / "comparison_components.csv")
     write_results_csv(rows, OUTPUT_DIR / "results.csv")
 
     print("RWA field-strength example")

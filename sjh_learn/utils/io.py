@@ -156,6 +156,25 @@ def save_result_data(
     return written
 
 
+def save_results_components_long(results: list[ResultLike], output_path: str | Path) -> Path:
+    if not results:
+        raise ValueError("results must not be empty.")
+    frames = []
+    for result in results:
+        if result.dimension() != 2:
+            raise ValueError("save_results_components_long() is only defined for two-level results.")
+        frame = result.components_dataframe().copy()
+        frame.insert(0, "mode", result.mode)
+        frames.append(frame)
+
+    pd = __import__("pandas")
+    combined = pd.concat(frames, ignore_index=True)
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_csv(path, index=False)
+    return path
+
+
 def save_result_case(
     result: ResultLike,
     output_dir: str | Path,
@@ -255,6 +274,7 @@ __all__ = [
     "default_output_path",
     "save_parameter_summary",
     "save_result_data",
+    "save_results_components_long",
     "save_figure",
     "save_result_case",
 ]

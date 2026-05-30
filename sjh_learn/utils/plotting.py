@@ -43,10 +43,12 @@ def _times_and_label(result: DynamicsResult) -> tuple[np.ndarray, str]:
     return result.times, "Time"
 
 
-def plot_field(field, times, ax=None, label: str | None = None, *, ylabel: str = "E(t)"):
+def plot_field(field, times, ax=None, label: str | None = None, *, ylabel: str = "E(t)", plot_times=None):
     fig, ax = _new_axes(ax)
-    values = np.asarray(field(np.asarray(times, dtype=float)), dtype=float)
-    ax.plot(times, values, label=label or getattr(field, "name", "field"))
+    code_times = np.asarray(times, dtype=float)
+    shown_times = code_times if plot_times is None else np.asarray(plot_times, dtype=float)
+    values = np.asarray(field(code_times), dtype=float)
+    ax.plot(shown_times, values, label=label or getattr(field, "name", "field"))
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -68,13 +70,15 @@ def plot_drive(
         ax.grid(True, alpha=0.3)
         return fig, ax
 
-    sample_times = result.times if times is None else np.asarray(times, dtype=float)
-    if sample_times.size > max_points:
-        stride = int(np.ceil(sample_times.size / max_points))
-        sample_times = sample_times[::stride]
-    values = result.drive_values(sample_times)
+    sample_times_code = result.times if times is None else np.asarray(times, dtype=float)
+    shown_times = _times_and_label(result)[0] if times is None else np.asarray(times, dtype=float)
+    if sample_times_code.size > max_points:
+        stride = int(np.ceil(sample_times_code.size / max_points))
+        sample_times_code = sample_times_code[::stride]
+        shown_times = shown_times[::stride]
+    values = result.drive_values(sample_times_code)
     ylabel = "Omega(t)" if result.mode == "rwa" else "E(t)"
-    ax.plot(sample_times, values, label=label or result.drive_name or "input")
+    ax.plot(shown_times, values, label=label or result.drive_name or "input")
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
     ax.legend()

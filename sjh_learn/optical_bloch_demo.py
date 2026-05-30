@@ -30,6 +30,7 @@ from sjh_learn.utils import (
     run_rwa_case,
     save_figure,
     save_parameter_summary,
+    save_results_components_long,
 )
 
 
@@ -40,7 +41,7 @@ BASE_PHYSICAL_PARAMS = PhysicalParams(
     field_MV_per_cm=0.3,
     t_start_fs=0.0,
     t_end_fs=1000.0,
-    dt_fs=0.5,
+    dt_fs=0.05,
     T1_fs=500.0,
     T2_fs=None,
     Tphi_fs=300.0,
@@ -140,6 +141,10 @@ def main() -> None:
 
             output_path = default_output_path(OUTPUT_DIR, lab)
             save_comparison_figure(lab, rotating, rwa, output_path)
+            save_results_components_long(
+                [lab, rotating, rwa],
+                output_path.with_name(f"{output_path.stem}_components.csv"),
+            )
             saved_paths.append(output_path)
 
             for result in (lab, rotating, rwa):

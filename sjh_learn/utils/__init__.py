@@ -22,6 +22,7 @@ from .io import (
     save_parameter_summary,
     save_result_case,
     save_result_data,
+    save_results_components_long,
 )
 from .model import build_c_ops, build_lab_hamiltonian, compute_detuning, compute_energy_gap
 from .multilevel import (
@@ -95,6 +96,7 @@ __all__ = [
     "ResultManager",
     "default_output_path",
     "save_result_data",
+    "save_results_components_long",
     "save_figure",
     "save_result_case",
     "save_parameter_summary",
