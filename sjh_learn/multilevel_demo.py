@@ -40,11 +40,10 @@ def main() -> None:
         dt=0.05,
         fields=(
             FieldConfig(
+                name="cw_drive",
                 amplitude=0.5,
                 omega=1.0,
                 phase=0.0,
-                envelope="constant",
-                name="cw_drive",
             ),
         ),
         collapse_channels=(

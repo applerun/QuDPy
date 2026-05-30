@@ -1,184 +1,78 @@
-# `sjh_learn` 学习代码说明
+# sjh_learn
 
-当前代码现在有两条学习路径：
+`sjh_learn` 是当前用来学习 two-level optical Bloch dynamics 的小型 QuTiP 项目。现在的主线已经收口到单轨迹架构：一次求解只产生一个 `DynamicsResult`，顶层脚本负责决定要跑哪些 case、怎样拼图、怎样保存最终图像。
 
-- `two-level optical Bloch path`
-- `multi-level lab-frame path`
+## 当前架构
 
-两条路径都统一使用 QuTiP 的 `mesolve(H, rho0, tlist, c_ops, e_ops)`，不再使用手写 Liouvillian、密度矩阵向量化或 RK4 作为正式主流程。
+- 标准结果对象是 `DynamicsResult`。
+- 一个 `DynamicsResult` 只表示一条 density-matrix trajectory。
+- `lab_exact` 和 `rwa` 是两个独立 simulation case。
+- `rotating_view` 不是独立求解，而是由 `lab_exact` 结果通过幺正变换派生。
+- solver 层一次只返回一个 result，不同时运行 lab / rotating / RWA。
+- result 层只保存数值轨迹和 metadata，不依赖 matplotlib。
+- plotting 层只画到 matplotlib `fig/axes` 上并返回句柄，不默认保存文件。
+- 顶层脚本负责组合多个 result、排版、加总标题、保存最终图。
+- `io.py` 只负责保存 result 数字数据、metadata 和已经构造好的 figure。
 
-## 当前结构
+## Field / Drive
 
-```text
-sjh_learn/
-├─ optical_bloch_demo.py
-├─ multilevel_demo.py
-├─ optical_bloch_plots/
-├─ readme.md
-├─ document.md
-└─ utils/
-   ├─ __init__.py
-   ├─ normalization.py
-   ├─ parameters.py
-   ├─ fields.py
-   ├─ model.py
-   ├─ multilevel.py
-   ├─ solvers.py
-   ├─ results.py
-   ├─ checks.py
-   ├─ plotting.py
-   └─ io.py
-```
+`utils/fields.py` 现在使用 callable class 描述输入场和 RWA 慢变量 drive，不使用 `eval` 作为重建机制。
 
-## Two-Level Path
+已支持：
 
-两能级路径当前支持：
+- `ConstantDrive`: RWA 中的 CW drive，`Omega(t) = Omega0`。
+- `GaussianDrive`: RWA 中的高斯 envelope。
+- `CarrierField`: lab frame 载波场，`E(t) = 2A cos(omega t + phase)`。
+- `GaussianCarrierField`: lab frame 高斯包络载波场。
+- `CompositeField`: 多个 field 相加。
 
-- lab frame exact simulation
-- exact rotating-frame transformation
-- RWA simulation
-- physical parameter normalization
-- pure dephasing / population relaxation
-- parameter sweep
-- comparison plotting
+每个 field/drive 支持：
 
-当前物理约定保持不变：
+- `__call__(t)`: 接受 scalar 或 numpy array。
+- `to_dict()` / `from_dict()`: 用于可靠保存和重建。
+- `to_expr()` / `__repr__()`: 用于人类可读日志。
 
-- `detuning = omega_eg - omega_L`
-- `E(t) = 2 E0 cos(omega t)`
-- RWA 非对角项使用 `-g`
-- `g = mu E0 / hbar`
-- `C_phi = sqrt(gamma_phi / 2) * sigma_z`
-- `C_down = sqrt(gamma1) * sigma_minus`
+RWA 中真正进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是快速振荡 optical carrier。CW RWA drive 在 preview 中是一条水平线；pulse RWA drive 在 preview 中显示 envelope。
 
-绘图默认优先使用真实时间轴：
+## 结果和单位
 
-- 如果 `result.times_fs` 存在，横轴使用 `Time (fs)`
-- 否则回退到内部时间 `result.times`
+`DynamicsResult` 保存：
 
-图标题默认显示真实物理量，内部无量纲参数继续保存到 `parameter_summary.json`。
+- `mode`
+- `times`
+- `times_fs`
+- `states`
+- `parameters`
+- `physical_params`
+- `solver_params`
+- `metadata`
+- `source_mode`
+- input drive/field 的 `to_dict()` 和 `to_expr()`
 
-## Multi-Level Path
+density matrix、population、coherence 都是无量纲量。CSV 中主时间轴保存为真实 `time_fs`；NPZ 中同时保存 `time_fs` 和内部求解用的 `time_code`，方便回溯归一化。
 
-多能级路径当前支持：
+## 绘图和 IO
 
-- arbitrary `N`-level energies
-- arbitrary `N x N` dipole matrix
-- one or multiple `FieldConfig` fields
-- exact lab-frame `mesolve`
-- user-defined collapse channels
-  - `relaxation`
-  - `pure_dephasing`
-  - `custom`
+`utils/plotting.py` 提供低层绘图函数：
 
-多能级路径当前还不支持：
+- `plot_drive(result, ax=None, ...)`
+- `plot_field(field, times, ax=None, ...)`
+- `plot_populations(result, ax=None, ...)`
+- `plot_coherences(result, ax=None, ...)`
+- `plot_density_components(result, axes=None, include_drive=False, ...)`
+- `plot_multilevel_components(result, axes=None, ...)`
+- `build_preview_figure(result, ...)`
 
-- multi-level RWA
-- rotating-frame transformation
-- automatic physical-unit normalization
-- nonlinear spectroscopy pulse-sequence response functions
+所有绘图函数只返回 `fig, ax/axes`，不保存 PNG。低清 preview 由 `plotting.py` 构建，由 `io.py` 保存。
 
-也就是说，现在的 multi-level 部分是“最小可运行的 exact lab-frame framework”，用于避免后续代码被 two-level 写死，但还不是完整的多能级光谱框架。
+`utils/io.py` 提供：
 
-单位约定：
+- `save_result_data(result, output_dir, save_npz=True, save_csv=True, save_json=True)`
+- `save_figure(fig, output_path, dpi=120)`
+- `save_result_case(result, output_dir, output_data=True, output_preview=False, ...)`
+- `QuantumResultIO`
 
-- `energies`、`dipole_matrix`、`field amplitude`、`gamma` 当前都应已经是内部求解单位
-- 当前 multi-level path 不自动处理 `eV / fs / Debye / MV/cm` 的物理归一化
-- `hbar` 字段当前主要是约定保留，正式 multi-level lab-frame 路径没有额外用它做单位换算
-
-pure dephasing 约定：
-
-- `CollapseChannel(kind="pure_dephasing", rate=gamma, dephase_level=i)` 使用
-  - `C = sqrt(gamma) |i><i|`
-- 这里的 `gamma` 是 Lindblad collapse rate
-- 它不一定直接等于某个指定 coherence 的总 `T2` 衰减率
-- 对 `rho_ij`，多个 projector dephasing channels 的贡献通常是 `(gamma_i + gamma_j) / 2`
-
-## 电场层
-
-`utils/fields.py` 现在专门负责外加电场定义：
-
-- `FieldConfig`
-- `envelope_value`
-- `electric_field_value`
-- `electric_field_array`
-- `total_electric_field_value`
-- `total_electric_field_array`
-
-目前支持：
-
-- `constant` envelope
-- `gaussian` envelope
-
-后续可以在这里继续扩展 chirp、脉冲列、更多 envelope 形式，而不需要把波形逻辑写死在 `model.py` 或 `multilevel.py`。
-
-## 推荐导入方式
-
-```python
-from sjh_learn.utils.normalization import PhysicalParams, SolverParams, ParaNormalizer
-from sjh_learn.utils.parameters import OpticalBlochParameters, PhysicalParameterSweep, ParameterSweep
-from sjh_learn.utils.fields import FieldConfig, electric_field_value, total_electric_field_value
-from sjh_learn.utils.model import build_lab_hamiltonian, build_rwa_hamiltonian, build_c_ops
-from sjh_learn.utils.multilevel import (
-    MultiLevelParameters,
-    CollapseChannel,
-    build_multilevel_lab_hamiltonian,
-    build_multilevel_c_ops,
-    run_multilevel_case,
-)
-from sjh_learn.utils.results import OpticalBlochResult, MultiLevelResult
-from sjh_learn.utils.plotting import save_comparison_plot, save_multilevel_plot
-```
-
-## 如何运行
-
-Two-level demo：
-
-```bash
-conda activate qutip-clean
-python /Users/shenjianghao/PycharmProjects/QuDPy/sjh_learn/optical_bloch_demo.py
-```
-
-Multi-level demo：
-
-```bash
-conda activate qutip-clean
-python /Users/shenjianghao/PycharmProjects/QuDPy/sjh_learn/multilevel_demo.py
-```
-
-N=2 equivalence check：
-
-```bash
-conda activate qutip-clean
-python /Users/shenjianghao/PycharmProjects/QuDPy/sjh_learn/n2_equivalence_check.py
-```
-
-## 当前边界
-
-当前代码适合：
-
-- 学 two-level optical Bloch dynamics
-- 学 lab / rotating / RWA 的区别
-- 学 physical normalization
-- 试最小多能级实验室系数值演化
-
-当前还不适合直接当成：
-
-- 通用多能级 RWA 框架
-- 真正的多脉冲非线性光谱响应函数框架
-- 自动处理真实多能级物理量归一化的生产代码
-
-当前代码里还有两个明确的“下一步可以收束的重复点”：
-
-- `solvers.py` 和 `multilevel.py` 各自维护了一份 lab-frame `mesolve` 包装；未来可以抽象成通用 `simulate_lab_frame_system(system, rho0=None)`
-- `OpticalBlochResult` 和 `MultiLevelResult` 有一部分重复接口；未来可以抽象成 `QuantumResult` base class
-## Result IO / QuantumResultIO
-
-`utils/io.py` 现在同时负责传统图像路径和数值结果管理。新增的 `QuantumResultIO`
-借鉴了 `NOPAExpRes` 的思路：求解器只负责物理计算，IO manager 负责 `results.csv`、
-逐 case 目录、数值数据、`meta.json` 和可选预览图。
-
-默认输出结构：
+默认 case 输出结构：
 
 ```text
 outdir/
@@ -186,91 +80,39 @@ outdir/
 └─ res_per_case/
    └─ <case_name>/
       ├─ data/
+      │  ├─ density.npz
+      │  ├─ components.csv
+      │  └─ populations.csv
       ├─ figs/
+      │  ├─ preview.png
+      │  └─ full.png
       └─ meta.json
 ```
 
-Two-level `OpticalBlochResult` 支持保存：
+完整数据和预览图可以分别开关。`output_preview=True` 时，如果没有传入 `preview_fig`，IO 层会调用 `build_preview_figure(result)` 生成低清预览图；result 对象本身不画图。
 
-- `data/density_lab.npz`
-- `data/density_rotating.npz`
-- `data/density_rwa.npz`
-- `data/components_lab.csv`
-- `data/components_rotating.csv`
-- `data/components_rwa.csv`
-- `meta.json`
-- `figs/preview.png`，可选低 dpi 预览图
-- `figs/comparison.png`，可选高 dpi 完整图
+## Demo 和 Example
 
-Multi-level `MultiLevelResult` 支持保存：
-
-- `data/density_lab.npz`
-- `data/populations.csv`
-- `data/selected_elements.csv`，当用户指定矩阵元时输出
-- `meta.json`
-- `figs/preview.png`，可选低 dpi 预览图
-
-保存开关：
-
-```python
-from sjh_learn.utils import QuantumResultIO
-
-io = QuantumResultIO("output_dir")
-io.save_case(
-    result,
-    output_data=True,
-    output_preview=True,
-    output_full_figure=False,
-    save_npz=True,
-    save_csv=True,
-    save_json=True,
-    preview_dpi=120,
-    full_dpi=300,
-)
-```
-
-说明：
-
-- density matrix / population / coherence 都是无量纲量。
-- CSV 和 NPZ 中的主时间轴保存为 `time_fs`，优先使用真实物理时间 fs。
-- `time_code` 也会写入 NPZ，便于追踪内部求解单位。
-- 完整数据和预览图可以分别通过 `output_data`、`output_preview`、
-  `output_full_figure` 开关控制。
-
-## Single-Trajectory Dynamics Architecture
-
-当前推荐架构已经调整为“一次求解只产生一个 result”：
-
-- `lab_exact` 和 `rwa` 是两个独立 simulation case。
-- `rotating_view` 不是独立求解，而是由 `lab_exact` result 通过幺正变换派生。
-- solver 层一次只返回一个 `DynamicsResult`。
-- result 层一次只保存一条 density-matrix trajectory。
-- `plotting.py` 的新函数只画到 matplotlib `fig/axes` 并返回句柄，不默认保存。
-- 顶层脚本负责组合多个 result、排版、加总标题和保存最终图。
-- `io.py` 只保存 result 数字数据、metadata 和调用方已经构造好的 figure。
-
-推荐 two-level 用法：
+`optical_bloch_demo.py` 显式执行：
 
 ```python
 lab = run_lab_case(parameters)
 rotating = make_rotating_view(lab)
 rwa = run_rwa_case(parameters)
-
-fig, axes = plt.subplots(2, 3)
-plot_density_components(lab, axes=axes[:, 0])
-plot_density_components(rotating, axes=axes[:, 1])
-plot_density_components(rwa, axes=axes[:, 2])
-save_figure(fig, output_path, dpi=160)
 ```
 
-推荐 IO 用法：
+然后由顶层脚本创建 3x3 comparison figure：第一行 input drive / field，第二行 population，第三行 coherence。
 
-```python
-save_result_case(lab, outdir, output_data=True)
-save_result_case(rwa, outdir, output_data=True)
-save_result_case(lab, outdir, output_preview=True, fig=fig)
+`examples/rwa_01_field_strength.py` 是第一个 RWA-only example。它只运行 RWA，不计算 lab frame，用不同 `field_MV_per_cm` 验证场强越大、Rabi 振荡越快。每个 case 保存 `density.npz`、`components.csv`、`meta.json` 和低清 `preview.png`，总图保存为 `comparison.png`。
+
+## 运行检查
+
+```powershell
+conda --no-plugins run -n quantum python -m compileall sjh_learn
+conda --no-plugins run -n quantum python sjh_learn\n2_equivalence_check.py
+conda --no-plugins run -n quantum python sjh_learn\multilevel_demo.py
+conda --no-plugins run -n quantum python sjh_learn\optical_bloch_demo.py
+conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strength.py
 ```
 
-`save_comparison_plot()` 和 `save_multilevel_plot()` 仍保留为兼容 wrapper，但新代码应优先
-使用 `plot_populations()`、`plot_coherences()`、`plot_density_components()`、
-`plot_multilevel_components()` 后由顶层脚本或 `io.save_figure()` 保存。
+当前阶段不引入 UFSS、多能级 RWA、复杂真实脉冲或吸收光谱；重点是 two-level RWA 基础 example、input drive preview 和结果输出整理。

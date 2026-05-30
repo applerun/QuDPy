@@ -8,18 +8,17 @@ import numpy as np
 from qutip import Qobj, mesolve
 
 from .checks import evaluate_sanity_checks
-from .fields import FieldConfig
+from .fields import CarrierField, ConstantDrive, GaussianCarrierField, GaussianDrive
 from .model import (
     build_c_ops,
     build_lab_hamiltonian,
-    build_rwa_hamiltonian,
     compute_energy_gap,
     initial_density_matrix,
     parameter_fields,
 )
 from .normalization import ParaNormalizer, PhysicalParams, SolverParams
 from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
-from .results import DynamicsResult, OpticalBlochResult
+from .results import DynamicsResult
 
 
 def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
@@ -38,14 +37,17 @@ def simulate_lab_frame(
     fields = parameter_fields(parameters)
     if field_amplitude_override is not None:
         fields = (
-            FieldConfig(
+            (CarrierField(
                 amplitude=field_amplitude_override,
                 omega=parameters.omega_drive,
                 phase=0.0,
-                envelope="constant" if parameters.pulse_sigma is None else "gaussian",
+            ) if parameters.pulse_sigma is None else GaussianCarrierField(
+                amplitude=field_amplitude_override,
+                omega=parameters.omega_drive,
+                phase=0.0,
                 center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
                 sigma=parameters.pulse_sigma,
-            ),
+            )),
         )
     result = mesolve(
         H=build_lab_hamiltonian(parameters),
@@ -62,17 +64,35 @@ def simulate_rwa_frame(
     parameters: OpticalBlochParameters,
     times: np.ndarray | None = None,
     rho0: Qobj | None = None,
+    drive: ConstantDrive | GaussianDrive | None = None,
 ) -> list[Qobj]:
     if times is None:
         times = _default_tlist(parameters)
+    if drive is None:
+        drive = default_rwa_drive(parameters)
+    h_static = Qobj(np.array([[0.0, 0.0], [0.0, parameters.detuning]], dtype=np.complex128))
+    h_coupling = Qobj(np.array([[0.0, -1.0], [-1.0, 0.0]], dtype=np.complex128))
     result = mesolve(
-        H=build_rwa_hamiltonian(parameters),
+        H=[h_static, [h_coupling, lambda t, args: float(args["drive"](t))]],
         rho0=initial_density_matrix() if rho0 is None else rho0,
         tlist=times,
         c_ops=build_c_ops(parameters),
         e_ops=[],
+        args={"drive": drive},
     )
     return list(result.states)
+
+
+def default_rwa_drive(parameters: OpticalBlochParameters) -> ConstantDrive | GaussianDrive:
+    amplitude = parameters.dipole * parameters.field_amplitude
+    if parameters.pulse_sigma is None:
+        return ConstantDrive(name="rwa_cw_drive", amplitude=amplitude)
+    return GaussianDrive(
+        name="rwa_gaussian_drive",
+        amplitude=amplitude,
+        center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
+        sigma=parameters.pulse_sigma,
+    )
 
 
 def _energy_upper(parameters: OpticalBlochParameters) -> float:
@@ -100,6 +120,9 @@ def _basic_sanity_checks(result: DynamicsResult) -> dict[str, object]:
 
 def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -> DynamicsResult:
     times, states = simulate_lab_frame(parameters, rho0=rho0)
+    fields = parameter_fields(parameters)
+    drive = fields[0] if len(fields) == 1 else None
+    field_expr = fields[0].to_expr() if len(fields) == 1 and hasattr(fields[0], "to_expr") else None
     result = DynamicsResult(
         mode="lab_exact",
         times=times,
@@ -107,14 +130,23 @@ def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -
         states=states,
         parameters=parameters,
         metadata={"epsilon_2": _energy_upper(parameters)},
+        drive=drive,
+        drive_dict=drive.to_dict() if drive is not None and hasattr(drive, "to_dict") else None,
+        drive_expr=field_expr,
+        drive_name=getattr(drive, "name", None),
     )
     result.sanity_checks = evaluate_sanity_checks(result)
     return result
 
 
-def run_rwa_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -> DynamicsResult:
+def run_rwa_case(
+    parameters: OpticalBlochParameters,
+    rho0: Qobj | None = None,
+    drive: ConstantDrive | GaussianDrive | None = None,
+) -> DynamicsResult:
     times = _default_tlist(parameters)
-    states = simulate_rwa_frame(parameters, times=times, rho0=rho0)
+    local_drive = default_rwa_drive(parameters) if drive is None else drive
+    states = simulate_rwa_frame(parameters, times=times, rho0=rho0, drive=local_drive)
     result = DynamicsResult(
         mode="rwa",
         times=times,
@@ -122,6 +154,10 @@ def run_rwa_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -
         states=states,
         parameters=parameters,
         metadata={"epsilon_2": _energy_upper(parameters)},
+        drive=local_drive,
+        drive_dict=local_drive.to_dict(),
+        drive_expr=local_drive.to_expr(),
+        drive_name=local_drive.name,
     )
     result.sanity_checks = _basic_sanity_checks(result)
     return result
@@ -162,9 +198,9 @@ def rotating_frame_unitary(time: float, omega_drive: float) -> Qobj:
     )
 
 
-def rotate_density_trajectory(times: np.ndarray, lab_states: list[Qobj], omega_drive: float) -> list[Qobj]:
+def rotate_density_trajectory(times: np.ndarray, states: list[Qobj], omega_drive: float) -> list[Qobj]:
     rotated_states: list[Qobj] = []
-    for time, rho_lab in zip(times, lab_states):
+    for time, rho_lab in zip(times, states):
         unitary = rotating_frame_unitary(time, omega_drive)
         rotated_states.append(unitary.dag() * rho_lab * unitary)
     return rotated_states
@@ -262,14 +298,11 @@ def run_physical_parameter_sweep(
 __all__ = [
     "simulate_lab_frame",
     "simulate_rwa_frame",
+    "default_rwa_drive",
     "rotating_frame_unitary",
     "rotate_density_trajectory",
     "optical_params_from_solver",
     "run_lab_case",
     "run_rwa_case",
     "make_rotating_view",
-    "run_case",
-    "run_physical_case",
-    "run_parameter_sweep",
-    "run_physical_parameter_sweep",
 ]

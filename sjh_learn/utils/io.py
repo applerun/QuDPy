@@ -10,10 +10,10 @@ from typing import Any
 
 import numpy as np
 
-from .results import DynamicsResult, MultiLevelResult, OpticalBlochResult
+from .results import DynamicsResult
 
 
-ResultLike = DynamicsResult | MultiLevelResult | OpticalBlochResult
+ResultLike = DynamicsResult
 
 
 def format_value_tag(value: float) -> str:
@@ -72,40 +72,21 @@ def _safe_case_name(value: str) -> str:
 
 
 def _case_name(result: ResultLike) -> str:
-    if isinstance(result, DynamicsResult):
-        physical = result.physical_params
-        if physical is not None:
-            return _safe_case_name(
-                f"{result.mode}_field_{format_value_tag(physical.field_MV_per_cm)}_"
-                f"laser_{format_value_tag(physical.laser_energy_eV)}"
-            )
-        return _safe_case_name(f"{result.mode}_N{result.dimension()}")
-    if isinstance(result, OpticalBlochResult):
-        if result.physical_params is not None:
-            return _safe_case_name(
-                f"optical_field_{format_value_tag(result.physical_params.field_MV_per_cm)}_"
-                f"laser_{format_value_tag(result.physical_params.laser_energy_eV)}"
-            )
-        return _safe_case_name(f"optical_E0_{format_value_tag(result.parameters.field_amplitude)}")
-    return _safe_case_name(
-        f"multilevel_N{result.dimension()}_t{format_value_tag(float(result.times[0]))}_to_"
-        f"{format_value_tag(float(result.times[-1]))}"
-    )
+    physical = result.physical_params
+    if physical is not None:
+        return _safe_case_name(
+            f"{result.mode}_field_{format_value_tag(physical.field_MV_per_cm)}_"
+            f"laser_{format_value_tag(physical.laser_energy_eV)}"
+        )
+    return _safe_case_name(f"{result.mode}_N{result.dimension()}")
 
 
 def _summary_row(case_name: str, result: ResultLike) -> dict[str, Any]:
     times = result.times_fs if result.times_fs is not None else result.times
-    if isinstance(result, OpticalBlochResult):
-        dimension = 2
-        rho11, rho22, _rho12, _rho21 = result.components("lab")
-        max_trace_error = result.max_trace_error("lab")
-        max_hermiticity_error = result.max_hermiticity_error("lab")
-        final_populations = f"{float(rho11[-1].real):.12g};{float(rho22[-1].real):.12g}"
-    else:
-        dimension = result.dimension()
-        max_trace_error = result.max_trace_error()
-        max_hermiticity_error = result.max_hermiticity_error()
-        final_populations = ";".join(f"{float(value.real):.12g}" for value in result.populations()[-1])
+    dimension = result.dimension()
+    max_trace_error = result.max_trace_error()
+    max_hermiticity_error = result.max_hermiticity_error()
+    final_populations = ";".join(f"{float(value.real):.12g}" for value in result.populations()[-1])
     row: dict[str, Any] = {
         "case_name": case_name,
         "result_type": type(result).__name__,
@@ -153,19 +134,14 @@ def save_result_data(
         written["density_npz"] = npz_path
 
     if save_csv:
-        dimension = 2 if isinstance(result, OpticalBlochResult) else result.dimension()
-        if dimension == 2:
+        if result.dimension() == 2:
             components_path = output / "components.csv"
-            if isinstance(result, OpticalBlochResult):
-                result.components_dataframe("lab").to_csv(components_path, index=False)
-            else:
-                result.components_dataframe().to_csv(components_path, index=False)
+            result.components_dataframe().to_csv(components_path, index=False)
             written["components_csv"] = components_path
 
-        if not isinstance(result, OpticalBlochResult):
-            populations_path = output / "populations.csv"
-            result.populations_dataframe().to_csv(populations_path, index=False)
-            written["populations_csv"] = populations_path
+        populations_path = output / "populations.csv"
+        result.populations_dataframe().to_csv(populations_path, index=False)
+        written["populations_csv"] = populations_path
 
         if selected_elements:
             selected_path = output / "selected_elements.csv"
@@ -187,12 +163,16 @@ def save_result_case(
     output_data: bool = True,
     output_preview: bool = False,
     fig=None,
+    preview_fig=None,
     preview_dpi: int = 120,
+    full_fig=None,
+    full_dpi: int = 300,
     save_npz: bool = True,
     save_csv: bool = True,
     save_json: bool = True,
     case_name: str | None = None,
     selected_elements: dict[str, tuple[int, int]] | None = None,
+    append_results_csv: bool = True,
 ) -> dict[str, Path]:
     root = Path(output_dir)
     name = _safe_case_name(case_name) if case_name is not None else _case_name(result)
@@ -214,29 +194,46 @@ def save_result_case(
             )
         )
 
-    if output_preview and fig is not None:
-        preview_path = figs_dir / "preview.png"
-        written["preview"] = save_figure(fig, preview_path, dpi=preview_dpi)
+    generated_preview = False
+    local_preview_fig = fig if preview_fig is None else preview_fig
+    if output_preview and local_preview_fig is None:
+        from .plotting import build_preview_figure
 
-    header = [
-        "case_name",
-        "result_type",
-        "mode",
-        "source_mode",
-        "time_start_fs",
-        "time_end_fs",
-        "n_time_points",
-        "dimension",
-        "field_MV_per_cm",
-        "laser_energy_eV",
-        "detuning_fs_inv",
-        "max_trace_error",
-        "max_hermiticity_error",
-        "final_populations",
-    ]
-    results_csv = root / "results.csv"
-    _append_results_csv_row(results_csv, header, _summary_row(name, result))
-    written["results_csv"] = results_csv
+        local_preview_fig, _axes = build_preview_figure(result)
+        generated_preview = True
+
+    if output_preview and local_preview_fig is not None:
+        preview_path = figs_dir / "preview.png"
+        written["preview"] = save_figure(local_preview_fig, preview_path, dpi=preview_dpi)
+        if generated_preview:
+            import matplotlib.pyplot as plt
+
+            plt.close(local_preview_fig)
+
+    if full_fig is not None:
+        full_path = figs_dir / "full.png"
+        written["full"] = save_figure(full_fig, full_path, dpi=full_dpi)
+
+    if append_results_csv:
+        header = [
+            "case_name",
+            "result_type",
+            "mode",
+            "source_mode",
+            "time_start_fs",
+            "time_end_fs",
+            "n_time_points",
+            "dimension",
+            "field_MV_per_cm",
+            "laser_energy_eV",
+            "detuning_fs_inv",
+            "max_trace_error",
+            "max_hermiticity_error",
+            "final_populations",
+        ]
+        results_csv = root / "results.csv"
+        _append_results_csv_row(results_csv, header, _summary_row(name, result))
+        written["results_csv"] = results_csv
     return written
 
 

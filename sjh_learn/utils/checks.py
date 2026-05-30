@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from qutip import Qobj, mesolve
 
-from .fields import FieldConfig
+from .fields import CarrierField, GaussianCarrierField
 from .model import (
     build_c_ops,
     build_lab_hamiltonian,
@@ -17,7 +17,7 @@ from .model import (
     initial_density_matrix,
 )
 from .parameters import OpticalBlochParameters
-from .results import DynamicsResult, OpticalBlochResult
+from .results import DynamicsResult
 
 
 def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
@@ -34,14 +34,17 @@ def _simulate_lab_for_check(
 ) -> tuple[np.ndarray, list[Qobj]]:
     times = _default_tlist(parameters)
     fields = (
-        FieldConfig(
+        (CarrierField(
             amplitude=field_amplitude_override,
             omega=parameters.omega_drive,
             phase=0.0,
-            envelope="constant" if parameters.pulse_sigma is None else "gaussian",
+        ) if parameters.pulse_sigma is None else GaussianCarrierField(
+            amplitude=field_amplitude_override,
+            omega=parameters.omega_drive,
+            phase=0.0,
             center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
             sigma=parameters.pulse_sigma,
-        ),
+        )),
     )
     result = mesolve(
         H=build_lab_hamiltonian(parameters),
@@ -109,15 +112,10 @@ def _simulate_closed_system_sanity(parameters: OpticalBlochParameters) -> dict[s
     }
 
 
-def evaluate_sanity_checks(result: DynamicsResult | OpticalBlochResult) -> dict[str, Any]:
-    if isinstance(result, DynamicsResult):
-        rho11, rho22, rho12, rho21 = result.components()
-        max_trace_error = result.max_trace_error()
-        max_hermiticity_error = result.max_hermiticity_error()
-    else:
-        rho11, rho22, rho12, rho21 = result.components("lab")
-        max_trace_error = result.max_trace_error("lab")
-        max_hermiticity_error = result.max_hermiticity_error("lab")
+def evaluate_sanity_checks(result: DynamicsResult) -> dict[str, Any]:
+    rho11, rho22, rho12, rho21 = result.components()
+    max_trace_error = result.max_trace_error()
+    max_hermiticity_error = result.max_hermiticity_error()
     checks: dict[str, Any] = {
         "trace_error_small": {
             "value": max_trace_error,

@@ -11,7 +11,7 @@ from qutip import Qobj, basis, mesolve
 from .fields import FieldConfig, total_electric_field_value
 from .model import compute_energy_gap, initial_density_matrix, parameter_fields
 from .parameters import OpticalBlochParameters
-from .results import DynamicsResult, MultiLevelResult
+from .results import DynamicsResult
 
 
 @dataclass(frozen=True)
@@ -218,7 +218,7 @@ def simulate_multilevel_lab_frame(
     return times, list(result.states)
 
 
-def _evaluate_multilevel_sanity_checks(result: DynamicsResult | MultiLevelResult) -> dict[str, Any]:
+def _evaluate_multilevel_sanity_checks(result: DynamicsResult) -> dict[str, Any]:
     trace_error = result.max_trace_error()
     hermiticity_error = result.max_hermiticity_error()
     populations = result.populations()
@@ -241,13 +241,13 @@ def run_multilevel_lab_case(
     parameters: MultiLevelParameters,
     rho0: Qobj | None = None,
 ) -> DynamicsResult:
-    times, lab_states = simulate_multilevel_lab_frame(parameters, rho0=rho0)
+    times, states = simulate_multilevel_lab_frame(parameters, rho0=rho0)
     result = DynamicsResult(
         mode="multilevel_lab",
         parameters=parameters,
         times=times,
         times_fs=parameters.times_fs,
-        states=lab_states,
+        states=states,
     )
     result.sanity_checks = _evaluate_multilevel_sanity_checks(result)
     return result

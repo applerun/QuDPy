@@ -5,14 +5,14 @@ from __future__ import annotations
 import numpy as np
 from qutip import Qobj, basis
 
-from .fields import FieldConfig, electric_field_array, electric_field_value, total_electric_field_value
+from .fields import CarrierField, GaussianCarrierField, electric_field_array, total_electric_field_value
 from .parameters import OpticalBlochParameters
 
 
 def electric_field(times: np.ndarray, amplitude: float, omega_drive: float) -> np.ndarray:
     return electric_field_array(
         np.asarray(times, dtype=float),
-        FieldConfig(amplitude=amplitude, omega=omega_drive),
+        CarrierField(amplitude=amplitude, omega=omega_drive),
     )
 
 
@@ -70,17 +70,16 @@ def coherent_superposition_density_matrix() -> Qobj:
     return psi * psi.dag()
 
 
-def default_field_config(parameters: OpticalBlochParameters) -> FieldConfig:
+def default_field_config(parameters: OpticalBlochParameters):
     """把两能级旧参数转换成默认的单电场配置。"""
     if parameters.pulse_sigma is None:
-        return FieldConfig(
+        return CarrierField(
             amplitude=parameters.field_amplitude,
             omega=parameters.omega_drive,
         )
-    return FieldConfig(
+    return GaussianCarrierField(
         amplitude=parameters.field_amplitude,
         omega=parameters.omega_drive,
-        envelope="gaussian",
         center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
         sigma=parameters.pulse_sigma,
     )
@@ -96,18 +95,15 @@ def parameter_fields(parameters: OpticalBlochParameters) -> tuple[FieldConfig, .
 def pulse_envelope(time: float, pulse_center: float | None, pulse_sigma: float | None) -> float:
     """兼容保留的包络接口，内部委托给 fields.py。"""
     if pulse_sigma is None:
-        field = FieldConfig(amplitude=0.0, omega=0.0, envelope="constant")
+        return 1.0
     else:
-        field = FieldConfig(
+        field = GaussianCarrierField(
             amplitude=0.0,
             omega=0.0,
-            envelope="gaussian",
             center=0.0 if pulse_center is None else pulse_center,
             sigma=pulse_sigma,
         )
-    from .fields import envelope_value
-
-    return envelope_value(time, field)
+        return float(field.envelope(time))
 
 
 def build_lab_hamiltonian(parameters: OpticalBlochParameters) -> list[Qobj | list[object]]:
