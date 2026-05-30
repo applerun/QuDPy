@@ -17,7 +17,8 @@ from sjh_learn.examples.rwa_common import (
     make_base_physical_params,
     physical_params_with_field,
     plot_rwa_comparison,
-    run_rwa_case_from_physical_params,
+    plot_three_mode_field_comparison,
+    run_three_mode_cases_from_physical_params,
     save_case_result,
     save_results_csv,
 )
@@ -34,9 +35,11 @@ def main() -> None:
     results = []
     labels = []
     rows = []
+    frame_cases = []
     for field in field_values:
         physical = physical_params_with_field(base, field)
-        result = run_rwa_case_from_physical_params(physical)
+        lab, rotating, rwa = run_three_mode_cases_from_physical_params(physical)
+        result = rwa
         case_name = build_case_name_from_T1_Tphi(
             prefix="rwa_field_strength",
             field_MV_per_cm=physical.field_MV_per_cm,
@@ -45,16 +48,31 @@ def main() -> None:
         )
         results.append(result)
         labels.append(f"{field:g} MV/cm")
-        rows.append(collect_summary_metrics(result, case_name=case_name))
-        save_case_result(result, OUTPUT_DIR, preview=True, case_name=case_name)
+        rows.append(collect_summary_metrics(result, case_name=case_name, example_name="rwa_01_field_strength"))
+        frame_cases.append((f"{field:g} MV/cm", lab, rotating, rwa))
+        save_case_result(
+            result,
+            OUTPUT_DIR,
+            preview=True,
+            case_name=case_name,
+            example_name="rwa_01_field_strength",
+        )
 
     fig, _axes = plot_rwa_comparison(
         results,
         labels,
         OUTPUT_DIR / "comparison.png",
         title="RWA field-strength scan",
+        colormap="plasma",
     )
     plt.close(fig)
+    frame_fig, _frame_axes = plot_three_mode_field_comparison(
+        frame_cases,
+        OUTPUT_DIR / "frame_comparison.png",
+        title="Field-strength comparison: lab / rotating / RWA",
+        colormap="plasma",
+    )
+    plt.close(frame_fig)
     save_results_components_long(results, OUTPUT_DIR / "comparison_components.csv")
     save_results_csv(rows, OUTPUT_DIR / "results.csv")
 

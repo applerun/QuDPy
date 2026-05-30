@@ -196,6 +196,12 @@ Current `redistribution` is intentionally simplified to excited-to-ground T1 rel
 
 `field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
 
+Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical inputs, derived physical rates, a compact code-unit summary, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, drive metadata, solver internals, and sanity checks.
+
+`rwa_02_dephasing.py`, `rwa_03_redistribution.py`, and `rwa_04_dephasing_and_redistribution.py` now each generate three condition groups: `resonant_strong`, `resonant_weak`, and `detuned_weak`. The `field_MV_per_cm = 0.1` cases are meant to show weak-drive dynamics, while `detuned_weak` shows how off-resonant driving changes population transfer and coherence response.
+
+RWA comparison plots now contain four rows: `Omega(t)`, `rho22(t)`, `abs_rho12(t)`, and `phase(rho12)`. The phase trace is unwrapped, and low-amplitude regions with very small `abs(rho12)` are masked with `NaN` because the phase there is not numerically meaningful. RWA example comparisons also use colormap gradients rather than matplotlib's default color cycle.
+
 ## Unit Conventions
 
 - `PhysicalParams` uses physical units such as `time_fs`, `field_MV_per_cm`, `rabi_fs_inv`, and `gamma_fs_inv`.

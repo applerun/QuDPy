@@ -9,6 +9,15 @@ import numpy as np
 from .results import DynamicsResult
 
 
+def _plasma_colors(count: int, *, start: float = 0.18, end: float = 0.88):
+    import matplotlib.pyplot as plt
+
+    cmap = plt.get_cmap("plasma")
+    if count <= 1:
+        return [cmap((start + end) * 0.5)]
+    return list(cmap(np.linspace(start, end, count)))
+
+
 def _new_axes(ax=None, *, figsize=(8, 4)):
     import matplotlib.pyplot as plt
 
@@ -56,7 +65,7 @@ def plot_field(
     code_times = np.asarray(times, dtype=float)
     shown_times = code_times if plot_times is None else np.asarray(plot_times, dtype=float)
     values = np.asarray(field(code_times), dtype=float)
-    ax.plot(shown_times, values, label=label or getattr(field, "name", "field"))
+    ax.plot(shown_times, values, label=label or getattr(field, "name", "field"), color=_plasma_colors(1)[0])
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -89,7 +98,7 @@ def plot_drive(
     if result.mode == "lab_exact" and not display_code_unit and result.times_fs is not None:
         values = result.field_MV_per_cm_values(sample_times_code, times_fs=shown_times)
         if values is not None:
-            ax.plot(shown_times, values, label=label or "physical field")
+            ax.plot(shown_times, values, label=label or "physical field", color=_plasma_colors(1)[0])
             ax.set_ylabel("E(t) (MV/cm)")
             ax.grid(True, alpha=0.3)
             ax.legend()
@@ -98,7 +107,7 @@ def plot_drive(
     if result.mode == "rwa" and not display_code_unit:
         values = result.drive_fs_inv_values(sample_times_code)
         if values is not None:
-            ax.plot(shown_times, values, label=label or "Omega(t) (fs^-1)")
+            ax.plot(shown_times, values, label=label or "Omega(t) (fs^-1)", color=_plasma_colors(1)[0])
             ax.set_ylabel("Omega(t) (fs^-1)")
             ax.grid(True, alpha=0.3)
             ax.legend()
@@ -111,7 +120,7 @@ def plot_drive(
     else:
         ylabel = "carrier (code unit)"
         default_label = "normalized carrier"
-    ax.plot(shown_times, values, label=label or default_label)
+    ax.plot(shown_times, values, label=label or default_label, color=_plasma_colors(1)[0])
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -123,9 +132,10 @@ def plot_populations(result: DynamicsResult, ax=None, populations=None, *, title
     times, time_label = _times_and_label(result)
     density = result.density_array()
     population_indices = list(range(result.dimension())) if populations is None else list(populations)
+    colors = _plasma_colors(len(population_indices))
 
-    for index in population_indices:
-        ax.plot(times, density[:, index, index].real, label=fr"$\rho_{{{index + 1}{index + 1}}}$")
+    for color, index in zip(colors, population_indices):
+        ax.plot(times, density[:, index, index].real, label=fr"$\rho_{{{index + 1}{index + 1}}}$", color=color)
     ax.set_xlabel(time_label)
     ax.set_ylabel("Population")
     if title is not None:
@@ -140,12 +150,15 @@ def plot_coherences(result: DynamicsResult, ax=None, coherences=None, *, title: 
     times, time_label = _times_and_label(result)
     if coherences is None:
         coherences = [(0, 1)] if result.dimension() >= 2 else []
+    colors = _plasma_colors(max(2, 2 * len(coherences)))
 
-    for i, j in coherences:
+    for pair_index, (i, j) in enumerate(coherences):
         values = result.matrix_element(i, j)
         label = fr"$\rho_{{{i + 1}{j + 1}}}$"
-        ax.plot(times, values.real, label=f"Re({label})")
-        ax.plot(times, values.imag, linestyle="--", label=f"Im({label})")
+        color_re = colors[2 * pair_index]
+        color_im = colors[2 * pair_index + 1]
+        ax.plot(times, values.real, label=f"Re({label})", color=color_re)
+        ax.plot(times, values.imag, linestyle="--", label=f"Im({label})", color=color_im)
     ax.set_xlabel(time_label)
     ax.set_ylabel("Coherence")
     if title is not None:
@@ -164,7 +177,7 @@ def plot_density_components(
     display_code_unit: bool = False,
 ):
     nrows = 3 if include_drive else 2
-    fig, axes_array = _new_axes_array(axes, nrows=nrows, ncols=1, figsize=(7, 2.4 * nrows), sharex=True)
+    fig, axes_array = _new_axes_array(axes, nrows=nrows, ncols=1, figsize=(4.9, 1.68 * nrows), sharex=True)
     axes_flat = axes_array.reshape(-1)
     row = 0
     if include_drive:
@@ -190,7 +203,7 @@ def plot_multilevel_components(
     title: str | None = None,
 ):
     n_rows = 1 if not coherences else 2
-    fig, axes_array = _new_axes_array(axes, nrows=n_rows, ncols=1, figsize=(10, 4 + 3 * (n_rows - 1)), sharex=True)
+    fig, axes_array = _new_axes_array(axes, nrows=n_rows, ncols=1, figsize=(7.0, 2.8 + 2.1 * (n_rows - 1)), sharex=True)
     axes_flat = axes_array.reshape(-1)
     plot_populations(result, ax=axes_flat[0], populations=populations, title=title if title is not None else "Multi-level")
     if coherences:
@@ -205,7 +218,7 @@ def build_preview_figure(result: DynamicsResult, *, coherences=None, display_cod
     else:
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(3, 1, figsize=(8, 7), sharex=True)
+        fig, axes = plt.subplots(3, 1, figsize=(5.6, 4.9), sharex=True)
         plot_drive(result, ax=axes[0], display_code_unit=display_code_unit)
         axes[0].set_title(_mode_title(result))
         plot_populations(result, ax=axes[1])

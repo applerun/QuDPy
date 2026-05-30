@@ -261,13 +261,23 @@ class DynamicsResult:
             raise ValueError("components_dataframe() is only defined for two-level results.")
         pd = _require_pandas()
         rho11, rho22, rho12, rho21 = self.components()
+        abs_rho12 = np.abs(rho12)
+        phase_rho12 = np.angle(rho12)
+        phase_rho12_unwrapped = np.unwrap(phase_rho12)
+        phase_mask = abs_rho12 < 1e-8
+        phase_rho12 = phase_rho12.astype(float)
+        phase_rho12_unwrapped = phase_rho12_unwrapped.astype(float)
+        phase_rho12[phase_mask] = np.nan
+        phase_rho12_unwrapped[phase_mask] = np.nan
         data = {
             "time_fs": _time_axis_fs(self.times, self.times_fs),
             "rho11": rho11.real,
             "rho22": rho22.real,
             "Re_rho12": rho12.real,
             "Im_rho12": rho12.imag,
-            "abs_rho12": np.abs(rho12),
+            "abs_rho12": abs_rho12,
+            "phase_rho12": phase_rho12,
+            "phase_rho12_unwrapped": phase_rho12_unwrapped,
             "Re_rho21": rho21.real,
             "Im_rho21": rho21.imag,
         }

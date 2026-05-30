@@ -105,6 +105,10 @@ rwa = run_rwa_case(parameters)
 
 `examples/rwa_01_field_strength.py` 是第一个 RWA-only example。它只运行 RWA，不计算 lab frame，用不同 `field_MV_per_cm` 验证场强越大、Rabi 振荡越快。每个 case 保存 `density.npz`、`components.csv`、`meta.json` 和低清 `preview.png`，总图保存为 `comparison.png`。
 
+`rwa_02_dephasing.py`、`rwa_03_redistribution.py` 和 `rwa_04_dephasing_and_redistribution.py` 现在都包含三组条件：`resonant_strong`、`resonant_weak`、`detuned_weak`。其中 `field_MV_per_cm = 0.1` 用于观察弱驱动下的动力学，`detuned_weak` 用于观察非共振条件下 population transfer 和 coherence response 的变化。每个 condition group 都会保存自己的 `comparison.png`、`comparison_components.csv` 和 `results.csv`。
+
+RWA comparison 图现在包含四行：`Omega(t)`、`\rho_{22}(t)`、`|\rho_{12}(t)|` 和 `phase(\rho_{12})`。当 `abs(rho12)` 很小时，相位会通过 NaN mask 和 unwrap 处理来避免无意义的跳变。RWA examples 的 comparison 曲线使用 colormap 渐变色，而不是 matplotlib 默认颜色循环。
+
 ## 运行检查
 
 ```powershell
@@ -127,6 +131,8 @@ conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strengt
 Current `redistribution` is intentionally simplified to excited-to-ground T1 relaxation in the RWA examples. Bidirectional redistribution and thermal redistribution are future extensions, and upward transitions are not implemented in this round. All RWA examples run only `run_rwa_case`, each simulation case is one `DynamicsResult`, and the input drive is saved in metadata, preview figures, and `comparison_components.csv`.
 
 `field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
+
+Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical inputs, derived physical rates, a compact code-unit summary, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, drive metadata, solver internals, and sanity checks.
 
 ## Unit Conventions
 

@@ -21,87 +21,50 @@ from dataclasses import replace
 from pathlib import Path
 import sys
 
-import matplotlib.pyplot as plt
-
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from sjh_learn.examples.rwa_common import (
-    build_case_name_from_T1_Tphi,
-    collect_summary_metrics,
-    make_base_physical_params,
-    plot_rwa_comparison,
-    run_rwa_case_from_physical_params,
-    save_case_result,
-    save_results_csv,
+    make_condition_groups,
+    run_example_group,
 )
-from sjh_learn.utils import save_results_components_long
 
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "rwa_04_dephasing_and_redistribution"
 
 
 def main() -> None:
-    base = make_base_physical_params()
     case_specs = [
-        ("no_dissipation", None, None),
-        ("dephasing_only", None, 300.0),
-        ("redistribution_only", 300.0, None),
-        ("both", 300.0, 300.0),
+        {"label": "no_dissipation", "T1_fs": None, "Tphi_fs": None},
+        {"label": "dephasing_only", "T1_fs": None, "Tphi_fs": 300.0},
+        {"label": "redistribution_only", "T1_fs": 300.0, "Tphi_fs": None},
+        {"label": "both", "T1_fs": 300.0, "Tphi_fs": 300.0},
     ]
 
-    results = []
-    labels = []
-    rows = []
-    for label, t1_fs, tphi_fs in case_specs:
-        physical = replace(base, field_MV_per_cm=0.5, T1_fs=t1_fs, T2_fs=None, Tphi_fs=tphi_fs)
-        result = run_rwa_case_from_physical_params(physical)
-        case_name = build_case_name_from_T1_Tphi(
-            prefix=f"rwa_{label}",
-            field_MV_per_cm=physical.field_MV_per_cm,
-            T1_fs=physical.T1_fs,
-            Tphi_fs=physical.Tphi_fs,
+    for condition_name, base in make_condition_groups().items():
+        group_dir = OUTPUT_DIR / condition_name
+        rows = run_example_group(
+            output_dir=group_dir,
+            base_physical=replace(base, T1_fs=None, T2_fs=None, Tphi_fs=None),
+            case_specs=case_specs,
+            case_name_prefix="rwa_combined",
+            comparison_title=f"RWA dephasing and redistribution: {condition_name}",
+            label_builder=lambda spec: spec["label"],
+            colormap="plasma",
+            condition_name=condition_name,
         )
-        results.append(result)
-        labels.append(label)
-        row = collect_summary_metrics(result, case_name=case_name)
-        rows.append(
-            {
-                "case_name": row["case_name"],
-                "mode": row["mode"],
-                "field_MV_per_cm": row["field_MV_per_cm"],
-                "T1_fs": row["T1_fs"],
-                "Tphi_fs": row["Tphi_fs"],
-                "gamma1_fs_inv": row["gamma1_fs_inv"],
-                "gamma_phi_fs_inv": row["gamma_phi_fs_inv"],
-                "gamma2_fs_inv": row["gamma2_fs_inv"],
-                "max_rho22": row["max_rho22"],
-                "final_rho22": row["final_rho22"],
-                "max_abs_rho12": row["max_abs_rho12"],
-                "final_abs_rho12": row["final_abs_rho12"],
-            }
-        )
-        save_case_result(result, OUTPUT_DIR, preview=True, case_name=case_name)
-
-    fig, _axes = plot_rwa_comparison(
-        results,
-        labels,
-        OUTPUT_DIR / "comparison.png",
-        title="RWA dephasing and redistribution",
-    )
-    plt.close(fig)
-    save_results_components_long(results, OUTPUT_DIR / "comparison_components.csv")
-    save_results_csv(rows, OUTPUT_DIR / "results.csv")
+        print(f"condition: {condition_name}")
+        print(f"output dir: {group_dir}")
+        for row in rows:
+            print(
+                f"{row['case_name']}: gamma1_fs_inv={row['gamma1_fs_inv']:.6g}, "
+                f"gamma_phi_fs_inv={row['gamma_phi_fs_inv']:.6g}, "
+                f"final_rho22={row['final_rho22']:.6f}, "
+                f"final_abs_rho12={row['final_abs_rho12']:.6f}"
+            )
 
     print("RWA dephasing and redistribution example")
-    print(f"output dir: {OUTPUT_DIR}")
-    for row in rows:
-        print(
-            f"{row['case_name']}: gamma1_fs_inv={row['gamma1_fs_inv']:.6g}, "
-            f"gamma_phi_fs_inv={row['gamma_phi_fs_inv']:.6g}, "
-            f"final_rho22={row['final_rho22']:.6f}, "
-            f"final_abs_rho12={row['final_abs_rho12']:.6f}"
-        )
+    print(f"output root: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":

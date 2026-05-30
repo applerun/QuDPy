@@ -80,7 +80,7 @@ def run_one_physical_point(physical_params: PhysicalParams):
 
 
 def save_comparison_figure(lab, rotating, rwa, output_path: Path) -> Path:
-    fig, axes = plt.subplots(3, 3, figsize=(18, 9), sharex="col")
+    fig, axes = plt.subplots(3, 3, figsize=(12.6, 6.3), sharex="col")
     plot_density_components(lab, axes=axes[:, 0], include_drive=True, title="Lab frame")
     plot_density_components(rotating, axes=axes[:, 1], include_drive=True, title="Rotating view")
     plot_density_components(rwa, axes=axes[:, 2], include_drive=True, title="RWA")
