@@ -50,6 +50,37 @@ def _time_axis_fs(times: np.ndarray, times_fs: np.ndarray | None) -> np.ndarray:
     return np.asarray(times, dtype=float)
 
 
+def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
+    return {
+        "time_scale_fs": solver.time_scale_fs,
+        "omega_eg_fs_inv": solver.omega_eg_fs_inv,
+        "omega_L_fs_inv": solver.omega_L_fs_inv,
+        "detuning_fs_inv": solver.detuning_fs_inv,
+        "rabi_fs_inv": solver.rabi_fs_inv,
+        "gamma1_fs_inv": solver.gamma1_fs_inv,
+        "gamma_phi_fs_inv": solver.gamma_phi_fs_inv,
+        "gamma2_fs_inv": solver.gamma2_fs_inv,
+    }
+
+
+def _solver_params_code_dict(solver: SolverParams) -> dict[str, Any]:
+    return {
+        "omega_eg_code": solver.omega_eg,
+        "omega_L_code": solver.omega_L,
+        "detuning_code": solver.detuning,
+        "rabi_code": solver.rabi,
+        "gamma1_code": solver.gamma1,
+        "gamma_phi_code": solver.gamma_phi,
+        "gamma2_code": solver.gamma2,
+        "t_start_code": solver.t_start,
+        "t_end_code": solver.t_end,
+        "dt_code": solver.dt,
+        "tlist_code": solver.tlist,
+        "pulse_center_code": solver.pulse_center,
+        "pulse_sigma_code": solver.pulse_sigma,
+    }
+
+
 @dataclass
 class DynamicsResult:
     """One result object for one trajectory from one simulation mode or derived view."""
@@ -94,11 +125,44 @@ class DynamicsResult:
         density = self.density_array()
         return density[:, 0, 0], density[:, 1, 1], density[:, 0, 1], density[:, 1, 0]
 
-    def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
+    def drive_code_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         if self.drive is None:
             return None
         sample_times = self.times if times is None else np.asarray(times, dtype=float)
         return np.asarray(self.drive(sample_times), dtype=float)
+
+    def drive_fs_inv_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
+        drive_code = self.drive_code_values(times)
+        if drive_code is None or self.solver_params is None or self.mode != "rwa":
+            return None
+        return np.asarray(drive_code, dtype=float) / float(self.solver_params.time_scale_fs)
+
+    def field_MV_per_cm_values(
+        self,
+        times: np.ndarray | None = None,
+        *,
+        times_fs: np.ndarray | None = None,
+    ) -> np.ndarray | None:
+        if self.mode != "lab_exact" or self.physical_params is None or self.solver_params is None:
+            return None
+        if times_fs is None:
+            if times is None:
+                if self.times_fs is None:
+                    return None
+                sample_times_fs = np.asarray(self.times_fs, dtype=float)
+            elif self.times_fs is not None and len(times) == len(self.times_fs):
+                sample_times_fs = np.asarray(self.times_fs, dtype=float)
+            else:
+                return None
+        else:
+            sample_times_fs = np.asarray(times_fs, dtype=float)
+        phase = float(getattr(self.drive, "phase", 0.0)) if self.drive is not None else 0.0
+        return 2.0 * float(self.physical_params.field_MV_per_cm) * np.cos(
+            float(self.solver_params.omega_L_fs_inv) * sample_times_fs + phase
+        )
+
+    def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
+        return self.drive_code_values(times)
 
     def max_trace_error(self) -> float:
         density = self.density_array()
@@ -139,8 +203,8 @@ class DynamicsResult:
             "source_mode": self.source_mode,
             "summary": self.summary_dict(),
             "sanity_checks": self.sanity_checks,
-            "metadata": self.metadata,
-            "drive": self.drive_dict,
+            "result_metadata": self.metadata,
+            "drive_dict": self.drive_dict,
             "drive_expr": self.drive_expr,
             "drive_name": self.drive_name,
             "density_matrix_unit": "dimensionless",
@@ -151,13 +215,13 @@ class DynamicsResult:
             "time_fs_is_physical": self.times_fs is not None,
             "n_time_points": int(len(self.times)),
             "dimension": self.dimension(),
-            "parameters": self.parameters,
+            "parameters_code": self.parameters,
         }
         if self.physical_params is not None:
             metadata["physical_params"] = self.physical_params
         if self.solver_params is not None:
-            metadata["solver_params"] = self.solver_params
-            metadata["time_scale_fs"] = self.solver_params.time_scale_fs
+            metadata["solver_params_fs_inv"] = _solver_params_fs_inv_dict(self.solver_params)
+            metadata["solver_params_code"] = _solver_params_code_dict(self.solver_params)
         return _json_safe(metadata)
 
     def parameter_summary_dict(self) -> dict[str, Any]:
@@ -169,10 +233,28 @@ class DynamicsResult:
             "time_code": np.asarray(self.times, dtype=float),
             "density": self.density_array(),
         }
-        drive_values = self.drive_values()
-        if drive_values is not None:
-            payload["drive_value"] = drive_values
+        drive_code = self.drive_code_values()
+        drive_fs_inv = self.drive_fs_inv_values()
+        field_MV_per_cm = self.field_MV_per_cm_values()
+        if drive_code is not None:
+            payload["drive_code"] = drive_code
+        if drive_fs_inv is not None:
+            payload["drive_fs_inv"] = drive_fs_inv
+        if field_MV_per_cm is not None:
+            payload["field_MV_per_cm"] = field_MV_per_cm
         return payload
+
+    def _add_drive_columns(self, data: dict[str, Any]) -> dict[str, Any]:
+        drive_code = self.drive_code_values()
+        drive_fs_inv = self.drive_fs_inv_values()
+        field_MV_per_cm = self.field_MV_per_cm_values()
+        if drive_code is not None:
+            data["drive_code"] = drive_code
+        if drive_fs_inv is not None:
+            data["drive_fs_inv"] = drive_fs_inv
+        if field_MV_per_cm is not None:
+            data["field_MV_per_cm"] = field_MV_per_cm
+        return data
 
     def components_dataframe(self):
         if self.dimension() != 2:
@@ -189,9 +271,7 @@ class DynamicsResult:
             "Re_rho21": rho21.real,
             "Im_rho21": rho21.imag,
         }
-        drive_values = self.drive_values()
-        if drive_values is not None:
-            data["drive_value"] = drive_values
+        self._add_drive_columns(data)
         return pd.DataFrame(data)
 
     def populations_dataframe(self):
@@ -200,9 +280,7 @@ class DynamicsResult:
         data: dict[str, Any] = {"time_fs": _time_axis_fs(self.times, self.times_fs)}
         for index in range(populations.shape[1]):
             data[f"rho{index + 1}{index + 1}"] = populations[:, index].real
-        drive_values = self.drive_values()
-        if drive_values is not None:
-            data["drive_value"] = drive_values
+        self._add_drive_columns(data)
         return pd.DataFrame(data)
 
     def selected_elements_dataframe(self, elements: dict[str, tuple[int, int]]):
@@ -211,9 +289,7 @@ class DynamicsResult:
         for label, values in self.selected_elements(elements).items():
             data[f"Re_{label}"] = values.real
             data[f"Im_{label}"] = values.imag
-        drive_values = self.drive_values()
-        if drive_values is not None:
-            data["drive_value"] = drive_values
+        self._add_drive_columns(data)
         return pd.DataFrame(data)
 
     def plot_times_and_label(self) -> tuple[np.ndarray, str]:

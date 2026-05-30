@@ -1,4 +1,8 @@
-"""Result output and case-level data management helpers."""
+"""Result output and case-level data management helpers.
+
+User-facing CSV and figure outputs should prefer physical units when available.
+Internal code-unit diagnostics are still saved, but only under explicit names.
+"""
 
 from __future__ import annotations
 

@@ -10,19 +10,25 @@ Expected behavior:
 
 from __future__ import annotations
 
-import csv
 from dataclasses import replace
 from pathlib import Path
 import sys
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sjh_learn.examples.rwa_common import make_base_physical_params, run_rwa_case_from_physical_params
-from sjh_learn.utils import build_preview_figure, save_figure, save_result_case, save_results_components_long
+from sjh_learn.examples.rwa_common import (
+    build_case_name_from_T1_Tphi,
+    collect_summary_metrics,
+    make_base_physical_params,
+    plot_rwa_comparison,
+    run_rwa_case_from_physical_params,
+    save_case_result,
+    save_results_csv,
+)
+from sjh_learn.utils import save_results_components_long
 
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "rwa_02_dephasing"
@@ -32,106 +38,30 @@ def _tphi_label(tphi_fs: float | None) -> str:
     return "no_dephasing" if tphi_fs is None else f"Tphi_{tphi_fs:g}_fs"
 
 
-def _case_name(tphi_fs: float | None) -> str:
-    return "rwa_dephasing_none" if tphi_fs is None else f"rwa_dephasing_Tphi_{tphi_fs:g}"
-
-
-def _save_case_result(result, output_dir: Path) -> None:
-    preview_fig, _axes = build_preview_figure(result)
-    try:
-        save_result_case(
-            result,
-            output_dir,
-            output_data=True,
-            output_preview=True,
-            preview_fig=preview_fig,
-            preview_dpi=120,
-            case_name=_case_name(result.physical_params.Tphi_fs),
-            append_results_csv=False,
-        )
-    finally:
-        plt.close(preview_fig)
-
-
-def _collect_summary(result) -> dict[str, float | str | None]:
-    _rho11, rho22, rho12, _rho21 = result.components()
-    physical = result.physical_params
-    solver = result.solver_params
-    return {
-        "case_name": _case_name(physical.Tphi_fs),
-        "mode": result.mode,
-        "field_MV_per_cm": physical.field_MV_per_cm,
-        "Tphi_fs": physical.Tphi_fs,
-        "gamma_phi_fs_inv": solver.gamma_phi_fs_inv,
-        "gamma2_fs_inv": solver.gamma2_fs_inv,
-        "max_rho22": float(np.max(rho22.real)),
-        "final_rho22": float(rho22[-1].real),
-        "max_abs_rho12": float(np.max(np.abs(rho12))),
-        "final_abs_rho12": float(abs(rho12[-1])),
-    }
-
-
-def _write_results_csv(rows: list[dict], output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    header = [
-        "case_name",
-        "mode",
-        "field_MV_per_cm",
-        "Tphi_fs",
-        "gamma_phi_fs_inv",
-        "gamma2_fs_inv",
-        "max_rho22",
-        "final_rho22",
-        "max_abs_rho12",
-        "final_abs_rho12",
-    ]
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=header)
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def _plot_dephasing_summary(results, labels, output_path: Path):
-    fig, axes = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
-    for result, label in zip(results, labels):
-        times, _time_label = result.plot_times_and_label()
-        _rho11, rho22, rho12, _rho21 = result.components()
-        axes[0].plot(times, result.drive_values(), label=label)
-        axes[1].plot(times, rho22.real, label=label)
-        axes[2].plot(times, np.abs(rho12), label=label)
-
-    axes[0].set_ylabel("Omega(t)")
-    axes[1].set_ylabel(r"$\rho_{22}$")
-    axes[2].set_ylabel(r"$|\rho_{12}|$")
-    axes[2].set_xlabel("Time (fs)")
-    for ax in axes:
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-    fig.suptitle("RWA pure-dephasing scan")
-    fig.tight_layout()
-    save_figure(fig, output_path, dpi=160)
-    return fig, axes
-
-
 def main() -> None:
     base = make_base_physical_params()
-    tphi_values = [None, 1000.0, 300.0, 100.0]
-
+    tphi_values = [None, 1000.0, 300.0, 100.0, 50, 20]
     results = []
     labels = []
     rows = []
     for tphi_fs in tphi_values:
         physical = replace(base, field_MV_per_cm=0.5, T1_fs=None, T2_fs=None, Tphi_fs=tphi_fs)
         result = run_rwa_case_from_physical_params(physical)
+        case_name = build_case_name_from_T1_Tphi(
+            prefix="rwa_dephasing",
+            field_MV_per_cm=physical.field_MV_per_cm,
+            T1_fs=physical.T1_fs,
+            Tphi_fs=physical.Tphi_fs,
+        )
         results.append(result)
         labels.append(_tphi_label(tphi_fs))
-        rows.append(_collect_summary(result))
-        _save_case_result(result, OUTPUT_DIR)
+        rows.append(collect_summary_metrics(result, case_name=case_name))
+        save_case_result(result, OUTPUT_DIR, preview=True, case_name=case_name)
 
-    fig, _axes = _plot_dephasing_summary(results, labels, OUTPUT_DIR / "comparison.png")
+    fig, _axes = plot_rwa_comparison(results, labels, OUTPUT_DIR / "comparison.png", title="RWA pure-dephasing scan")
     plt.close(fig)
     save_results_components_long(results, OUTPUT_DIR / "comparison_components.csv")
-    _write_results_csv(rows, OUTPUT_DIR / "results.csv")
+    save_results_csv(rows, OUTPUT_DIR / "results.csv")
 
     print("RWA pure-dephasing example")
     print(f"output dir: {OUTPUT_DIR}")

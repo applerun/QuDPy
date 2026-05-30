@@ -121,3 +121,18 @@ conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strengt
 
 - `rwa_01_field_strength.py`: field strength controls Rabi frequency.
 - `rwa_02_dephasing.py`: pure dephasing damps coherence and Rabi oscillations without adding T1 population relaxation.
+- `rwa_03_redistribution.py`: T1 relaxation / redistribution damps excited-state population.
+- `rwa_04_dephasing_and_redistribution.py`: combined dephasing and redistribution.
+
+Current `redistribution` is intentionally simplified to excited-to-ground T1 relaxation in the RWA examples. Bidirectional redistribution and thermal redistribution are future extensions, and upward transitions are not implemented in this round. All RWA examples run only `run_rwa_case`, each simulation case is one `DynamicsResult`, and the input drive is saved in metadata, preview figures, and `comparison_components.csv`.
+
+`field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
+
+## Unit Conventions
+
+- `PhysicalParams` uses physical units such as `time_fs`, `field_MV_per_cm`, `rabi_fs_inv`, and `gamma_fs_inv`.
+- `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, drive, and decay rates.
+- Solver and model code are allowed to use code units internally.
+- Plotting, CSV export, and example summaries default to physical units when available.
+- Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
+- Density matrix, populations, and coherences are dimensionless.

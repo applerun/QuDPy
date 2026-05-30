@@ -12,13 +12,14 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from sjh_learn.examples.rwa_common import (
+    build_case_name_from_T1_Tphi,
     collect_summary_metrics,
     make_base_physical_params,
     physical_params_with_field,
-    plot_rwa_field_strength_summary,
+    plot_rwa_comparison,
     run_rwa_case_from_physical_params,
     save_case_result,
-    write_results_csv,
+    save_results_csv,
 )
 from sjh_learn.utils import save_results_components_long
 
@@ -36,15 +37,26 @@ def main() -> None:
     for field in field_values:
         physical = physical_params_with_field(base, field)
         result = run_rwa_case_from_physical_params(physical)
+        case_name = build_case_name_from_T1_Tphi(
+            prefix="rwa_field_strength",
+            field_MV_per_cm=physical.field_MV_per_cm,
+            T1_fs=physical.T1_fs,
+            Tphi_fs=physical.Tphi_fs,
+        )
         results.append(result)
         labels.append(f"{field:g} MV/cm")
-        rows.append(collect_summary_metrics(result))
-        save_case_result(result, OUTPUT_DIR, preview=True)
+        rows.append(collect_summary_metrics(result, case_name=case_name))
+        save_case_result(result, OUTPUT_DIR, preview=True, case_name=case_name)
 
-    fig, _axes = plot_rwa_field_strength_summary(results, labels, OUTPUT_DIR / "comparison.png")
+    fig, _axes = plot_rwa_comparison(
+        results,
+        labels,
+        OUTPUT_DIR / "comparison.png",
+        title="RWA field-strength scan",
+    )
     plt.close(fig)
     save_results_components_long(results, OUTPUT_DIR / "comparison_components.csv")
-    write_results_csv(rows, OUTPUT_DIR / "results.csv")
+    save_results_csv(rows, OUTPUT_DIR / "results.csv")
 
     print("RWA field-strength example")
     print(f"output dir: {OUTPUT_DIR}")

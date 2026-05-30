@@ -43,7 +43,15 @@ def _times_and_label(result: DynamicsResult) -> tuple[np.ndarray, str]:
     return result.times, "Time"
 
 
-def plot_field(field, times, ax=None, label: str | None = None, *, ylabel: str = "E(t)", plot_times=None):
+def plot_field(
+    field,
+    times,
+    ax=None,
+    label: str | None = None,
+    *,
+    ylabel: str = "field (code unit)",
+    plot_times=None,
+):
     fig, ax = _new_axes(ax)
     code_times = np.asarray(times, dtype=float)
     shown_times = code_times if plot_times is None else np.asarray(plot_times, dtype=float)
@@ -62,6 +70,7 @@ def plot_drive(
     label: str | None = None,
     *,
     max_points: int = 2000,
+    display_code_unit: bool = False,
 ):
     fig, ax = _new_axes(ax)
     if result.drive is None:
@@ -76,9 +85,33 @@ def plot_drive(
         stride = int(np.ceil(sample_times_code.size / max_points))
         sample_times_code = sample_times_code[::stride]
         shown_times = shown_times[::stride]
-    values = result.drive_values(sample_times_code)
-    ylabel = "Omega(t)" if result.mode == "rwa" else "E(t)"
-    ax.plot(shown_times, values, label=label or result.drive_name or "input")
+
+    if result.mode == "lab_exact" and not display_code_unit and result.times_fs is not None:
+        values = result.field_MV_per_cm_values(sample_times_code, times_fs=shown_times)
+        if values is not None:
+            ax.plot(shown_times, values, label=label or "physical field")
+            ax.set_ylabel("E(t) (MV/cm)")
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+            return fig, ax
+
+    if result.mode == "rwa" and not display_code_unit:
+        values = result.drive_fs_inv_values(sample_times_code)
+        if values is not None:
+            ax.plot(shown_times, values, label=label or "Omega(t) (fs^-1)")
+            ax.set_ylabel("Omega(t) (fs^-1)")
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+            return fig, ax
+
+    values = result.drive_code_values(sample_times_code)
+    if result.mode == "rwa":
+        ylabel = "Omega(t) (code unit)"
+        default_label = "RWA drive (code unit)"
+    else:
+        ylabel = "carrier (code unit)"
+        default_label = "normalized carrier"
+    ax.plot(shown_times, values, label=label or default_label)
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -128,13 +161,14 @@ def plot_density_components(
     *,
     include_drive: bool = False,
     title: str | None = None,
+    display_code_unit: bool = False,
 ):
     nrows = 3 if include_drive else 2
     fig, axes_array = _new_axes_array(axes, nrows=nrows, ncols=1, figsize=(7, 2.4 * nrows), sharex=True)
     axes_flat = axes_array.reshape(-1)
     row = 0
     if include_drive:
-        plot_drive(result, ax=axes_flat[row])
+        plot_drive(result, ax=axes_flat[row], display_code_unit=display_code_unit)
         axes_flat[row].set_title(title if title is not None else _mode_title(result))
         axes_flat[row].set_xlabel("")
         row += 1
@@ -165,14 +199,14 @@ def plot_multilevel_components(
     return fig, axes_array
 
 
-def build_preview_figure(result: DynamicsResult, *, coherences=None):
+def build_preview_figure(result: DynamicsResult, *, coherences=None, display_code_unit: bool = False):
     if result.dimension() == 2:
-        fig, axes = plot_density_components(result, include_drive=True)
+        fig, axes = plot_density_components(result, include_drive=True, display_code_unit=display_code_unit)
     else:
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(3, 1, figsize=(8, 7), sharex=True)
-        plot_drive(result, ax=axes[0])
+        plot_drive(result, ax=axes[0], display_code_unit=display_code_unit)
         axes[0].set_title(_mode_title(result))
         plot_populations(result, ax=axes[1])
         axes[1].set_xlabel("")
