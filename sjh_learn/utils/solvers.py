@@ -19,7 +19,7 @@ from .model import (
 )
 from .normalization import ParaNormalizer, PhysicalParams, SolverParams
 from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
-from .results import OpticalBlochResult
+from .results import DynamicsResult, OpticalBlochResult
 
 
 def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
@@ -60,9 +60,11 @@ def simulate_lab_frame(
 
 def simulate_rwa_frame(
     parameters: OpticalBlochParameters,
-    times: np.ndarray,
+    times: np.ndarray | None = None,
     rho0: Qobj | None = None,
 ) -> list[Qobj]:
+    if times is None:
+        times = _default_tlist(parameters)
     result = mesolve(
         H=build_rwa_hamiltonian(parameters),
         rho0=initial_density_matrix() if rho0 is None else rho0,
@@ -71,6 +73,81 @@ def simulate_rwa_frame(
         e_ops=[],
     )
     return list(result.states)
+
+
+def _energy_upper(parameters: OpticalBlochParameters) -> float:
+    return parameters.epsilon_1 + compute_energy_gap(
+        detuning=parameters.detuning,
+        omega_drive=parameters.omega_drive,
+        hbar=parameters.hbar,
+    )
+
+
+def _basic_sanity_checks(result: DynamicsResult) -> dict[str, object]:
+    return {
+        "trace_error_small": {
+            "value": result.max_trace_error(),
+            "threshold": 1e-8,
+            "passed": bool(result.max_trace_error() < 1e-8),
+        },
+        "hermiticity_error_small": {
+            "value": result.max_hermiticity_error(),
+            "threshold": 1e-8,
+            "passed": bool(result.max_hermiticity_error() < 1e-8),
+        },
+    }
+
+
+def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -> DynamicsResult:
+    times, states = simulate_lab_frame(parameters, rho0=rho0)
+    result = DynamicsResult(
+        mode="lab_exact",
+        times=times,
+        times_fs=parameters.times_fs,
+        states=states,
+        parameters=parameters,
+        metadata={"epsilon_2": _energy_upper(parameters)},
+    )
+    result.sanity_checks = evaluate_sanity_checks(result)
+    return result
+
+
+def run_rwa_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -> DynamicsResult:
+    times = _default_tlist(parameters)
+    states = simulate_rwa_frame(parameters, times=times, rho0=rho0)
+    result = DynamicsResult(
+        mode="rwa",
+        times=times,
+        times_fs=parameters.times_fs,
+        states=states,
+        parameters=parameters,
+        metadata={"epsilon_2": _energy_upper(parameters)},
+    )
+    result.sanity_checks = _basic_sanity_checks(result)
+    return result
+
+
+def make_rotating_view(lab_result: DynamicsResult) -> DynamicsResult:
+    if lab_result.mode != "lab_exact":
+        raise ValueError("make_rotating_view expects a lab_exact DynamicsResult.")
+    states = rotate_density_trajectory(
+        np.asarray(lab_result.times, dtype=float),
+        lab_result.states,
+        lab_result.parameters.omega_drive,
+    )
+    result = DynamicsResult(
+        mode="rotating_view",
+        times=lab_result.times,
+        times_fs=lab_result.times_fs,
+        states=states,
+        parameters=lab_result.parameters,
+        physical_params=lab_result.physical_params,
+        solver_params=lab_result.solver_params,
+        metadata=dict(lab_result.metadata),
+        source_mode=lab_result.mode,
+    )
+    result.sanity_checks = _basic_sanity_checks(result)
+    return result
 
 
 def rotating_frame_unitary(time: float, omega_drive: float) -> Qobj:
@@ -126,44 +203,27 @@ def optical_params_from_solver(
     )
 
 
-def run_case(parameters: OpticalBlochParameters) -> OpticalBlochResult:
-    epsilon_2 = parameters.epsilon_1 + compute_energy_gap(
-        detuning=parameters.detuning,
-        omega_drive=parameters.omega_drive,
-        hbar=parameters.hbar,
-    )
-    times, lab_states = simulate_lab_frame(parameters)
-    rotating_states = rotate_density_trajectory(times, lab_states, parameters.omega_drive)
-    rwa_states = simulate_rwa_frame(parameters, times)
-    result = OpticalBlochResult(
-        parameters=parameters,
-        epsilon_2=epsilon_2,
-        times=times,
-        times_fs=parameters.times_fs,
-        lab_states=lab_states,
-        rotating_states=rotating_states,
-        rwa_states=rwa_states,
-    )
-    result.sanity_checks = evaluate_sanity_checks(result)
-    return result
+def run_case(parameters: OpticalBlochParameters) -> DynamicsResult:
+    """Compatibility entrypoint. Prefer run_lab_case/run_rwa_case for new code."""
+    return run_lab_case(parameters)
 
 
 def run_physical_case(
     physical_params: PhysicalParams,
     normalizer: ParaNormalizer | None = None,
-) -> OpticalBlochResult:
+) -> DynamicsResult:
     local_normalizer = ParaNormalizer() if normalizer is None else normalizer
     solver = local_normalizer.normalize(physical_params)
     parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=local_normalizer)
-    result = run_case(parameters)
+    result = run_lab_case(parameters)
     result.physical_params = physical_params
     result.solver_params = solver
     result.sanity_checks = evaluate_sanity_checks(result)
     return result
 
 
-def run_parameter_sweep(sweep: ParameterSweep) -> list[OpticalBlochResult]:
-    results: list[OpticalBlochResult] = []
+def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
+    results: list[DynamicsResult] = []
     for detuning in sweep.detunings:
         for field_amplitude in sweep.field_amplitudes:
             parameters = OpticalBlochParameters(
@@ -183,11 +243,11 @@ def run_parameter_sweep(sweep: ParameterSweep) -> list[OpticalBlochResult]:
 def run_physical_parameter_sweep(
     sweep: PhysicalParameterSweep,
     normalizer: ParaNormalizer | None = None,
-) -> list[OpticalBlochResult]:
+) -> list[DynamicsResult]:
     field_values = sweep.field_MV_per_cm_values or (sweep.base_params.field_MV_per_cm,)
     laser_values = sweep.laser_energy_eV_values or (sweep.base_params.laser_energy_eV,)
 
-    results: list[OpticalBlochResult] = []
+    results: list[DynamicsResult] = []
     for laser_energy_eV in laser_values:
         for field_MV_per_cm in field_values:
             physical_params = replace(
@@ -205,6 +265,9 @@ __all__ = [
     "rotating_frame_unitary",
     "rotate_density_trajectory",
     "optical_params_from_solver",
+    "run_lab_case",
+    "run_rwa_case",
+    "make_rotating_view",
     "run_case",
     "run_physical_case",
     "run_parameter_sweep",

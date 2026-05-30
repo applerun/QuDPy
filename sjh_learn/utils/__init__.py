@@ -8,7 +8,15 @@ from .fields import (
     total_electric_field_array,
     total_electric_field_value,
 )
-from .io import default_output_path, save_parameter_summary
+from .io import (
+    QuantumResultIO,
+    ResultManager,
+    default_output_path,
+    save_figure,
+    save_parameter_summary,
+    save_result_case,
+    save_result_data,
+)
 from .model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, compute_detuning, compute_energy_gap
 from .multilevel import (
     CollapseChannel,
@@ -16,18 +24,29 @@ from .multilevel import (
     build_multilevel_c_ops,
     build_multilevel_lab_hamiltonian,
     optical_bloch_to_multilevel_parameters,
+    run_multilevel_lab_case,
     run_multilevel_case,
     simulate_multilevel_lab_frame,
     two_level_multilevel_equivalence_check,
 )
 from .normalization import ParaNormalizer, PhysicalParams, SolverParams
 from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
-from .plotting import save_comparison_plot, save_multilevel_plot
-from .results import MultiLevelResult, OpticalBlochResult
+from .plotting import (
+    plot_coherences,
+    plot_density_components,
+    plot_multilevel_components,
+    plot_populations,
+    save_comparison_plot,
+    save_multilevel_plot,
+)
+from .results import DynamicsResult, MultiLevelResult, OpticalBlochResult
 from .solvers import (
+    make_rotating_view,
     optical_params_from_solver,
     rotate_density_trajectory,
     rotating_frame_unitary,
+    run_lab_case,
+    run_rwa_case,
     run_case,
     run_parameter_sweep,
     run_physical_case,
@@ -40,6 +59,7 @@ __all__ = [
     "OpticalBlochParameters",
     "OpticalBlochResult",
     "MultiLevelResult",
+    "DynamicsResult",
     "PhysicalParams",
     "SolverParams",
     "ParaNormalizer",
@@ -61,14 +81,23 @@ __all__ = [
     "build_multilevel_c_ops",
     "optical_bloch_to_multilevel_parameters",
     "simulate_multilevel_lab_frame",
+    "run_multilevel_lab_case",
     "run_multilevel_case",
     "two_level_multilevel_equivalence_check",
+    "QuantumResultIO",
+    "ResultManager",
     "default_output_path",
+    "save_result_data",
+    "save_figure",
+    "save_result_case",
     "simulate_lab_frame",
     "simulate_rwa_frame",
     "rotating_frame_unitary",
     "rotate_density_trajectory",
     "optical_params_from_solver",
+    "run_lab_case",
+    "run_rwa_case",
+    "make_rotating_view",
     "run_case",
     "run_physical_case",
     "run_physical_parameter_sweep",
@@ -76,5 +105,9 @@ __all__ = [
     "save_parameter_summary",
     "save_comparison_plot",
     "save_multilevel_plot",
+    "plot_populations",
+    "plot_coherences",
+    "plot_density_components",
+    "plot_multilevel_components",
     "evaluate_sanity_checks",
 ]

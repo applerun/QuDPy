@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""两能级光学 Bloch demo。
+"""Two-level optical Bloch demo.
 
-这个脚本只负责三件事：
-1. 定义参数扫描范围
-2. 调用 `sjh_learn.utils` 里的计算函数
-3. 保存图像并打印结果摘要
+The top-level script decides which simulation cases to run and how to compose
+the comparison figure. Solver functions each return one trajectory.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import sys
+from time import perf_counter
+
+import matplotlib.pyplot as plt
 
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -19,10 +21,15 @@ from sjh_learn.utils import (
     ParaNormalizer,
     PhysicalParameterSweep,
     PhysicalParams,
+    QuantumResultIO,
     default_output_path,
-    run_physical_parameter_sweep,
+    make_rotating_view,
+    optical_params_from_solver,
+    plot_density_components,
+    run_lab_case,
+    run_rwa_case,
+    save_figure,
     save_parameter_summary,
-    save_comparison_plot,
 )
 
 
@@ -51,11 +58,53 @@ NORMALIZER = ParaNormalizer(time_scale_fs=None, auto_scale=True)
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "optical_bloch_plots"
 SUMMARY_PATH = OUTPUT_DIR / "parameter_summary.json"
+RESULT_IO = QuantumResultIO(str(OUTPUT_DIR / "quantum_results_single"))
+
+
+def run_one_physical_point(physical_params: PhysicalParams):
+    solver = NORMALIZER.normalize(physical_params)
+    parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=NORMALIZER)
+
+    lab = run_lab_case(parameters)
+    lab.physical_params = physical_params
+    lab.solver_params = solver
+
+    rotating = make_rotating_view(lab)
+
+    rwa = run_rwa_case(parameters)
+    rwa.physical_params = physical_params
+    rwa.solver_params = solver
+
+    return lab, rotating, rwa
+
+
+def save_comparison_figure(lab, rotating, rwa, output_path: Path) -> Path:
+    fig, axes = plt.subplots(2, 3, figsize=(18, 7), sharex="col")
+    plot_density_components(lab, axes=axes[:, 0])
+    plot_density_components(rotating, axes=axes[:, 1])
+    plot_density_components(rwa, axes=axes[:, 2])
+
+    physical = lab.physical_params
+    solver = lab.solver_params
+    if physical is not None and solver is not None:
+        fig.suptitle(
+            "Two-Level Optical Bloch Comparison\n"
+            f"Eg={physical.energy_gap_eV:.4f} eV, EL={physical.laser_energy_eV:.4f} eV, "
+            f"Field={physical.field_MV_per_cm:.4f} MV/cm, Dipole={physical.dipole_D:.4f} D\n"
+            f"T1={physical.T1_fs}, Tphi={physical.Tphi_fs}, "
+            f"Delta={solver.detuning_fs_inv:.6g} fs^-1, Rabi={solver.rabi_fs_inv:.6g} fs^-1"
+        )
+    else:
+        fig.suptitle("Two-Level Optical Bloch Comparison")
+
+    fig.tight_layout()
+    save_figure(fig, output_path, dpi=160)
+    plt.close(fig)
+    return output_path
 
 
 def main() -> None:
-    """运行参数扫描并保存图像。"""
-    print("两能级光学 Bloch 演化示例（真实物理参数输入）")
+    print("Two-level optical Bloch demo with explicit single-mode cases")
     print(f"energy_gap_eV     : {BASE_PHYSICAL_PARAMS.energy_gap_eV}")
     print(f"laser_energy_eV   : {BASE_PHYSICAL_PARAMS.laser_energy_eV}")
     print(f"dipole_D          : {BASE_PHYSICAL_PARAMS.dipole_D}")
@@ -66,32 +115,64 @@ def main() -> None:
     print(f"T1_fs             : {BASE_PHYSICAL_PARAMS.T1_fs}")
     print(f"Tphi_fs           : {BASE_PHYSICAL_PARAMS.Tphi_fs}")
 
-    results = run_physical_parameter_sweep(PHYSICAL_SWEEP, normalizer=NORMALIZER)
+    field_values = PHYSICAL_SWEEP.field_MV_per_cm_values or (PHYSICAL_SWEEP.base_params.field_MV_per_cm,)
+    laser_values = PHYSICAL_SWEEP.laser_energy_eV_values or (PHYSICAL_SWEEP.base_params.laser_energy_eV,)
 
-    print("\n逐个参数点结果：")
+    print("\nSolve timing:")
     saved_paths: list[Path] = []
-    for result in results:
-        output_path = default_output_path(OUTPUT_DIR, result)
-        save_comparison_plot(result, output_path)
-        saved_paths.append(output_path)
+    all_results = []
+    case_index = 0
+    total_cases = len(field_values) * len(laser_values)
+    sweep_start = perf_counter()
 
-        print(
-            f"\nE0 = {result.parameters.field_amplitude:.4f}, "
-            f"Delta = {result.parameters.detuning:.4f}"
-        )
-        print(f"输出图像         : {output_path}")
-        if result.solver_params is not None:
-            print(NORMALIZER.summary_text(result.physical_params, result.solver_params))
-        for key, value in result.summary_dict().items():
-            print(f"{key:<18}: {value}")
-        print(f"sanity_checks      : {result.sanity_checks}")
+    for laser_energy_eV in laser_values:
+        for field_MV_per_cm in field_values:
+            case_index += 1
+            physical_params = replace(
+                PHYSICAL_SWEEP.base_params,
+                laser_energy_eV=laser_energy_eV,
+                field_MV_per_cm=field_MV_per_cm,
+            )
 
-    print("\n已生成图像：")
+            case_start = perf_counter()
+            lab, rotating, rwa = run_one_physical_point(physical_params)
+            solve_elapsed_s = perf_counter() - case_start
+
+            output_path = default_output_path(OUTPUT_DIR, lab)
+            save_comparison_figure(lab, rotating, rwa, output_path)
+            saved_paths.append(output_path)
+
+            for result in (lab, rotating, rwa):
+                RESULT_IO.save_case(
+                    result,
+                    output_data=True,
+                    output_preview=False,
+                    save_npz=True,
+                    save_csv=True,
+                    save_json=True,
+                )
+                all_results.append(result)
+
+            print(
+                f"case {case_index}/{total_cases} "
+                f"field={field_MV_per_cm:g} MV/cm, "
+                f"laser={laser_energy_eV:g} eV -> "
+                f"{solve_elapsed_s:.3f} s"
+            )
+            print(f"output figure      : {output_path}")
+            print(f"lab final summary  : {lab.summary_dict()}")
+            print(f"rwa final summary  : {rwa.summary_dict()}")
+
+    total_elapsed_s = perf_counter() - sweep_start
+    print(f"\ntotal solve time  : {total_elapsed_s:.3f} s")
+
+    print("\nGenerated comparison figures:")
     for output_path in saved_paths:
         print(output_path)
 
-    summary_path = save_parameter_summary(results, SUMMARY_PATH)
-    print(f"\n参数摘要已保存   : {summary_path}")
+    summary_path = save_parameter_summary(all_results, SUMMARY_PATH)
+    print(f"\nparameter summary  : {summary_path}")
+    print(f"result data root   : {RESULT_IO.outdir}")
 
 
 if __name__ == "__main__":

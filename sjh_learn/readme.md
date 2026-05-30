@@ -172,3 +172,105 @@ python /Users/shenjianghao/PycharmProjects/QuDPy/sjh_learn/n2_equivalence_check.
 
 - `solvers.py` 和 `multilevel.py` 各自维护了一份 lab-frame `mesolve` 包装；未来可以抽象成通用 `simulate_lab_frame_system(system, rho0=None)`
 - `OpticalBlochResult` 和 `MultiLevelResult` 有一部分重复接口；未来可以抽象成 `QuantumResult` base class
+## Result IO / QuantumResultIO
+
+`utils/io.py` 现在同时负责传统图像路径和数值结果管理。新增的 `QuantumResultIO`
+借鉴了 `NOPAExpRes` 的思路：求解器只负责物理计算，IO manager 负责 `results.csv`、
+逐 case 目录、数值数据、`meta.json` 和可选预览图。
+
+默认输出结构：
+
+```text
+outdir/
+├─ results.csv
+└─ res_per_case/
+   └─ <case_name>/
+      ├─ data/
+      ├─ figs/
+      └─ meta.json
+```
+
+Two-level `OpticalBlochResult` 支持保存：
+
+- `data/density_lab.npz`
+- `data/density_rotating.npz`
+- `data/density_rwa.npz`
+- `data/components_lab.csv`
+- `data/components_rotating.csv`
+- `data/components_rwa.csv`
+- `meta.json`
+- `figs/preview.png`，可选低 dpi 预览图
+- `figs/comparison.png`，可选高 dpi 完整图
+
+Multi-level `MultiLevelResult` 支持保存：
+
+- `data/density_lab.npz`
+- `data/populations.csv`
+- `data/selected_elements.csv`，当用户指定矩阵元时输出
+- `meta.json`
+- `figs/preview.png`，可选低 dpi 预览图
+
+保存开关：
+
+```python
+from sjh_learn.utils import QuantumResultIO
+
+io = QuantumResultIO("output_dir")
+io.save_case(
+    result,
+    output_data=True,
+    output_preview=True,
+    output_full_figure=False,
+    save_npz=True,
+    save_csv=True,
+    save_json=True,
+    preview_dpi=120,
+    full_dpi=300,
+)
+```
+
+说明：
+
+- density matrix / population / coherence 都是无量纲量。
+- CSV 和 NPZ 中的主时间轴保存为 `time_fs`，优先使用真实物理时间 fs。
+- `time_code` 也会写入 NPZ，便于追踪内部求解单位。
+- 完整数据和预览图可以分别通过 `output_data`、`output_preview`、
+  `output_full_figure` 开关控制。
+
+## Single-Trajectory Dynamics Architecture
+
+当前推荐架构已经调整为“一次求解只产生一个 result”：
+
+- `lab_exact` 和 `rwa` 是两个独立 simulation case。
+- `rotating_view` 不是独立求解，而是由 `lab_exact` result 通过幺正变换派生。
+- solver 层一次只返回一个 `DynamicsResult`。
+- result 层一次只保存一条 density-matrix trajectory。
+- `plotting.py` 的新函数只画到 matplotlib `fig/axes` 并返回句柄，不默认保存。
+- 顶层脚本负责组合多个 result、排版、加总标题和保存最终图。
+- `io.py` 只保存 result 数字数据、metadata 和调用方已经构造好的 figure。
+
+推荐 two-level 用法：
+
+```python
+lab = run_lab_case(parameters)
+rotating = make_rotating_view(lab)
+rwa = run_rwa_case(parameters)
+
+fig, axes = plt.subplots(2, 3)
+plot_density_components(lab, axes=axes[:, 0])
+plot_density_components(rotating, axes=axes[:, 1])
+plot_density_components(rwa, axes=axes[:, 2])
+save_figure(fig, output_path, dpi=160)
+```
+
+推荐 IO 用法：
+
+```python
+save_result_case(lab, outdir, output_data=True)
+save_result_case(rwa, outdir, output_data=True)
+save_result_case(lab, outdir, output_preview=True, fig=fig)
+```
+
+`save_comparison_plot()` 和 `save_multilevel_plot()` 仍保留为兼容 wrapper，但新代码应优先
+使用 `plot_populations()`、`plot_coherences()`、`plot_density_components()`、
+`plot_multilevel_components()` 后由顶层脚本或 `io.save_figure()` 保存。

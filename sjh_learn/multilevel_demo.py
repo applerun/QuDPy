@@ -6,6 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import matplotlib.pyplot as plt
+
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -13,12 +15,15 @@ from sjh_learn.utils import (
     CollapseChannel,
     FieldConfig,
     MultiLevelParameters,
+    QuantumResultIO,
+    plot_multilevel_components,
     run_multilevel_case,
-    save_multilevel_plot,
+    save_figure,
 )
 
 
 OUTPUT_PATH = Path(__file__).resolve().parent / "optical_bloch_plots" / "multilevel_demo.png"
+RESULT_IO = QuantumResultIO(str(Path(__file__).resolve().parent / "optical_bloch_plots" / "quantum_results_single"))
 
 
 def main() -> None:
@@ -49,7 +54,18 @@ def main() -> None:
     )
 
     result = run_multilevel_case(parameters)
-    save_multilevel_plot(result, OUTPUT_PATH, populations=None, coherences=[(0, 1), (1, 2)])
+    fig, _axes = plot_multilevel_components(result, populations=None, coherences=[(0, 1), (1, 2)])
+    save_figure(fig, OUTPUT_PATH, dpi=160)
+    plt.close(fig)
+    saved_case = RESULT_IO.save_case(
+        result,
+        output_data=True,
+        output_preview=False,
+        save_npz=True,
+        save_csv=True,
+        save_json=True,
+        selected_elements={"rho12": (0, 1), "rho23": (1, 2)},
+    )
 
     print("多能级实验室系示例")
     print(f"dimension           : {result.dimension()}")
@@ -57,6 +73,7 @@ def main() -> None:
     print(f"trace error         : {result.max_trace_error():.3e}")
     print(f"Hermiticity error   : {result.max_hermiticity_error():.3e}")
     print(f"output plot         : {OUTPUT_PATH}")
+    print(f"result case dir     : {saved_case['case_dir']}")
     print(f"sanity checks       : {result.sanity_checks}")
 
 

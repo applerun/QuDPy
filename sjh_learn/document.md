@@ -300,3 +300,157 @@ result = mesolve(H_rwa, rho0, tlist, c_ops, e_ops)
   - `g = mu E0 / hbar`
 - multi-level 当前只有 exact lab-frame，尚未定义统一的 multi-level RWA 约定
 - multi-level pure dephasing 采用 projector collapse 约定，和 two-level `sigma_z` 约定并不完全同形，但可以通过等价映射复现 two-level lab-frame 动力学
+## 14. Result IO / QuantumResultIO
+
+`io.py` 已从简单输出辅助模块增强为结果管理模块，保留原有
+`default_output_path()` 和 `save_parameter_summary()`，并新增
+`QuantumResultIO` / `ResultManager`。
+
+设计边界参考 `NOPAExpRes`：
+
+- 求解流程仍只负责生成 `OpticalBlochResult` / `MultiLevelResult`。
+- `QuantumResultIO` 只负责文件夹、`results.csv`、逐 case 数据、`meta.json`
+  和可选预览图。
+- 不在 IO 层改变 Hamiltonian、`c_ops`、RWA、`FieldConfig` 或任何物理约定。
+
+### `OpticalBlochResult` 新增接口
+
+- `available_frames()`：返回 `lab / rotating / rwa`。
+- `to_npz_dict()`：返回 `time_fs`、`time_code` 和三个 frame 的密度矩阵。
+- `components_dataframe(frame)`：返回指定 frame 的表格，列为
+  `time_fs, rho11, rho22, Re_rho12, Im_rho12, Re_rho21, Im_rho21`。
+- `metadata_dict()`：返回可写入 JSON 的 metadata。
+
+### `MultiLevelResult` 新增接口
+
+- `to_npz_dict()`：返回 `time_fs`、`time_code` 和 `density_lab`。
+- `populations_dataframe()`：返回所有对角布居随时间变化。
+- `selected_elements_dataframe(elements)`：返回用户指定矩阵元的实部和虚部。
+- `metadata_dict()`：返回可写入 JSON 的 metadata。
+
+### 输出结构
+
+```text
+outdir/
+├─ results.csv
+└─ res_per_case/
+   └─ <case_name>/
+      ├─ data/
+      ├─ figs/
+      └─ meta.json
+```
+
+Two-level 每个 case 可输出：
+
+- `data/density_lab.npz`
+- `data/density_rotating.npz`
+- `data/density_rwa.npz`
+- `data/components_lab.csv`
+- `data/components_rotating.csv`
+- `data/components_rwa.csv`
+- `meta.json`
+- `figs/preview.png`
+- `figs/comparison.png`，仅在 `output_full_figure=True` 时输出
+
+Multi-level 每个 case 可输出：
+
+- `data/density_lab.npz`
+- `data/populations.csv`
+- `data/selected_elements.csv`，仅在用户指定 `selected_elements` 时输出
+- `meta.json`
+- `figs/preview.png`
+
+### 单位约定
+
+- density matrix、population、coherence 均为无量纲量。
+- CSV 主时间列为 `time_fs`。
+- NPZ 同时保存 `time_fs` 和 `time_code`。
+- 当 `times_fs` 存在时，`time_fs` 是真实物理时间 fs。
+- 当某些内部测试没有真实物理时间轴时，`time_fs` 回退为当前 result 的时间轴，
+  并在 metadata 中用 `time_fs_is_physical=False` 标记。
+
+### 图像开关
+
+`QuantumResultIO.save_case()` 中：
+
+- `output_data` 控制是否保存 NPZ/CSV。
+- `output_preview` 控制是否保存低 dpi `preview.png`，默认 dpi 为 120。
+- `output_full_figure` 控制是否保存高 dpi 完整图，默认 dpi 为 300。
+- `save_npz / save_csv / save_json` 分别控制不同数字文件。
+
+## 15. Single-Trajectory Solver Contract
+
+当前 solver / result / plotting / IO 的职责边界如下：
+
+1. `lab_exact` 和 `rwa` 是两个独立 simulation case。
+2. `rotating_view` 是 `lab_exact` result 的派生视图，不调用 `mesolve`。
+3. solver 层一次只返回一个 `DynamicsResult`。
+4. result 层一次只保存一条轨迹。
+5. plotting 层返回 matplotlib `fig, axes`，不默认保存 PNG。
+6. 顶层脚本负责组合多个 result、排版、加总标题、保存最终图。
+7. `io.py` 只保存数字数据、metadata 和已经构造好的 figure。
+
+### 新 result 类型
+
+`DynamicsResult` 字段：
+
+- `mode`：例如 `lab_exact`、`rwa`、`rotating_view`、`multilevel_lab`
+- `times`
+- `times_fs`
+- `states`
+- `parameters`
+- `physical_params`
+- `solver_params`
+- `metadata`
+- `source_mode`
+
+主要方法：
+
+- `density_array()`
+- `dimension()`
+- `populations()`
+- `matrix_element(i, j)`
+- `matrix_elements(pairs)`
+- `selected_elements(elements)`
+- `max_trace_error()`
+- `max_hermiticity_error()`
+- `summary_dict()`
+- `metadata_dict()`
+- `to_npz_dict()`
+- `components_dataframe()`，仅 two-level result 使用
+
+### 单模式求解函数
+
+- `run_lab_case(parameters, rho0=None) -> DynamicsResult`
+- `run_rwa_case(parameters, rho0=None) -> DynamicsResult`
+- `make_rotating_view(lab_result) -> DynamicsResult`
+- `run_multilevel_lab_case(parameters, rho0=None) -> DynamicsResult`
+
+`run_lab_case` 内部使用 `build_lab_hamiltonian + build_c_ops + mesolve`。
+`run_rwa_case` 内部使用 `build_rwa_hamiltonian + build_c_ops + mesolve`。
+`make_rotating_view` 只对 `lab_result.states` 做 `rotate_density_trajectory`。
+
+### 绘图函数
+
+新增低层 plotting API：
+
+- `plot_populations(result, ax=None, ...)`
+- `plot_coherences(result, ax=None, ...)`
+- `plot_density_components(result, axes=None, ...)`
+- `plot_multilevel_components(result, axes=None, ...)`
+
+如果传入 `ax/axes`，函数画在传入坐标轴上；否则内部创建 figure。
+所有函数返回 `fig, axes`，不直接保存文件。
+
+`save_comparison_plot()` 和 `save_multilevel_plot()` 仅作为 deprecated compatibility wrapper
+保留，新代码应由顶层脚本拼图并调用 `save_figure()`。
+
+### IO 函数
+
+`io.py` 提供：
+
+- `save_result_data(result, output_dir, save_npz=True, save_csv=True, save_json=True)`
+- `save_figure(fig, output_path, dpi=120)`
+- `save_result_case(result, output_dir, output_data=True, output_preview=False, fig=None, preview_dpi=120)`
+
+`io.py` 不决定 lab / rotating / RWA 如何排版；只有传入 `fig` 时才保存图像。

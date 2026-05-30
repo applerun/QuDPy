@@ -17,7 +17,7 @@ from .model import (
     initial_density_matrix,
 )
 from .parameters import OpticalBlochParameters
-from .results import OpticalBlochResult
+from .results import DynamicsResult, OpticalBlochResult
 
 
 def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
@@ -109,18 +109,25 @@ def _simulate_closed_system_sanity(parameters: OpticalBlochParameters) -> dict[s
     }
 
 
-def evaluate_sanity_checks(result: OpticalBlochResult) -> dict[str, Any]:
-    rho11, rho22, rho12, rho21 = result.components("lab")
+def evaluate_sanity_checks(result: DynamicsResult | OpticalBlochResult) -> dict[str, Any]:
+    if isinstance(result, DynamicsResult):
+        rho11, rho22, rho12, rho21 = result.components()
+        max_trace_error = result.max_trace_error()
+        max_hermiticity_error = result.max_hermiticity_error()
+    else:
+        rho11, rho22, rho12, rho21 = result.components("lab")
+        max_trace_error = result.max_trace_error("lab")
+        max_hermiticity_error = result.max_hermiticity_error("lab")
     checks: dict[str, Any] = {
         "trace_error_small": {
-            "value": result.max_trace_error("lab"),
+            "value": max_trace_error,
             "threshold": 1e-8,
-            "passed": bool(result.max_trace_error("lab") < 1e-8),
+            "passed": bool(max_trace_error < 1e-8),
         },
         "hermiticity_error_small": {
-            "value": result.max_hermiticity_error("lab"),
+            "value": max_hermiticity_error,
             "threshold": 1e-8,
-            "passed": bool(result.max_hermiticity_error("lab") < 1e-8),
+            "passed": bool(max_hermiticity_error < 1e-8),
         },
         "zero_field_closed_system_auxiliary": _simulate_closed_system_sanity(result.parameters),
     }
