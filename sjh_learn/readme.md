@@ -16,7 +16,25 @@
 
 ## Field / Drive
 
-`utils/fields.py` 现在使用 callable class 描述输入场和 RWA 慢变量 drive，不使用 `eval` 作为重建机制。
+`utils/fields/` is split by physical meaning and unit boundary:
+
+- `utils/fields/lab_fields.py`: user-facing lab-frame physical fields, including `CarrierFieldPhysical`, `GaussianCarrierFieldPhysical`, and `CompositeLabFieldPhysical`.
+- `utils/fields/rwa_drives.py`: user-facing physical RWA slow drives / couplings, including `ConstantRwaDrivePhysical`, `GaussianRwaDrivePhysical`, and `make_rwa_drive_from_physical_field()`.
+- `utils/fields/solver_inputs.py`: solver-internal code-unit callables such as `CodeCarrierField`, `CodeConstantDrive`, and `CodeGaussianDrive`.
+- `utils/fields/__init__.py`: public re-exports. Backward-compatible names such as `CarrierField` and `ConstantDrive` now point to physical user-facing classes; solver internals import `Code*` classes explicitly.
+
+User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Ordinary examples should set `PhysicalParams` or physical field/drive objects; `amplitude_code`, `time_unit="code"`, and `domain="solver_code"` belong only to `ParaNormalizer`, solver/model internals, `debug_meta.json`, or `solver_code_summary`.
+
+The lab-frame field and RWA drive are intentionally different objects:
+
+```text
+E(t) = 2 E0 f(t) cos(omega_L t + phase)
+g(t) = mu E0 f(t) / hbar
+```
+
+RWA 中保留的是 slow drive / coupling `g(t)`，不是 optical carrier。
+
+`utils/fields/` 现在使用 callable class 描述输入场和 RWA 慢变量 drive，不使用 `eval` 作为重建机制。
 
 已支持：
 
@@ -139,6 +157,7 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - `PhysicalParams` uses physical units such as `time_fs`, `field_MV_per_cm`, `rabi_fs_inv`, and `gamma_fs_inv`.
 - `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, drive, and decay rates.
 - Solver and model code are allowed to use code units internally.
+- User-facing field/drive classes use physical units only: `E0_MV_per_cm`, `laser_energy_eV` or `omega_L_fs_inv`, `phase_rad`, `pulse_center_fs`, `pulse_sigma_fs`, and RWA `amplitude_fs_inv`.
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.

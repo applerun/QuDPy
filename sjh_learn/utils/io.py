@@ -192,7 +192,7 @@ def _input_field_metadata(physical: Any, solver: Any) -> dict[str, Any] | None:
     envelope = _field_envelope(physical)
     data: dict[str, Any] = {
         "description": "Physical lab-frame optical field.",
-        "class": "GaussianCarrierField" if envelope == "gaussian" else "CarrierField",
+        "class": "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical",
         "expression": "E(t) = 2 E0 f(t) cos(omega_L t + phase)",
         "E0_MV_per_cm": physical.field_MV_per_cm,
         "peak_E_MV_per_cm": 2.0 * physical.field_MV_per_cm,
@@ -280,7 +280,7 @@ def _lab_frame_solver_metadata(result: ResultLike, physical: Any, solver: Any) -
     envelope = _field_envelope(physical) if physical is not None else "unknown"
     return {
         "description": "Direct lab-frame solver using the physical optical carrier.",
-        "field_class": "GaussianCarrierField" if envelope == "gaussian" else "CarrierField",
+        "field_class": "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical",
         "field_expression": "E(t) = 2 E0 f(t) cos(omega_L t + phase)",
         "interaction": "H_int(t) = -mu E(t)",
         "carrier_retained": True,
@@ -310,11 +310,23 @@ def _input_drive_metadata(result: ResultLike, physical: Any, solver: Any, parame
             "description": f"No RWA drive is used in {mode} mode.",
             "uses_rwa_drive": False,
         }
-    drive_dict = getattr(result, "drive_dict", None) or {}
     envelope = _field_envelope(physical) if physical is not None else "constant"
+    drive_class = "GaussianRwaDrivePhysical" if envelope == "gaussian" else "ConstantRwaDrivePhysical"
+    amplitude = None if solver is None else solver.rabi_fs_inv
+    if envelope == "gaussian":
+        drive_expr = (
+            None
+            if solver is None
+            else (
+                f"g(t) = {solver.rabi_fs_inv:.6g} fs^-1 * "
+                f"exp[-(t_fs - {solver.pulse_center_fs:.6g})^2 / (2 * {solver.pulse_sigma_fs:.6g}^2)]"
+            )
+        )
+    else:
+        drive_expr = None if amplitude is None else f"g(t) = {amplitude:.6g} fs^-1"
     return {
         "description": "Effective slow drive entering the RWA Hamiltonian.",
-        "class": drive_dict.get("class"),
+        "class": drive_class,
         "drive_name": getattr(result, "drive_name", None),
         "drive_symbol": "g(t)",
         "expression": "g(t) = mu E0 f(t) / hbar",
@@ -326,7 +338,7 @@ def _input_drive_metadata(result: ResultLike, physical: Any, solver: Any, parame
         "drive_unit_code": "code",
         "envelope": envelope,
         "amplitude_convention": "input_drive is the slow RWA coupling after removing the optical carrier.",
-        "drive_expr": getattr(result, "drive_expr", None),
+        "drive_expr": drive_expr,
         "parameters_field_amplitude_code": getattr(parameters, "field_amplitude", None),
     }
 

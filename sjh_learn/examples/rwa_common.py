@@ -189,8 +189,16 @@ def collect_summary_metrics(
     two_level_metrics = _two_level_metrics(result)
     physical = result.physical_params
     solver = result.solver_params
-    drive_dict = result.drive_dict or {}
     envelope = "gaussian" if physical.pulse_sigma_fs is not None else "constant"
+    drive_class = "GaussianRwaDrivePhysical" if envelope == "gaussian" else "ConstantRwaDrivePhysical"
+    drive_expr = (
+        f"g(t) = {solver.rabi_fs_inv:.6g} fs^-1"
+        if envelope == "constant"
+        else (
+            f"g(t) = {solver.rabi_fs_inv:.6g} fs^-1 * "
+            f"exp[-(t_fs - {solver.pulse_center_fs:.6g})^2 / (2 * {solver.pulse_sigma_fs:.6g}^2)]"
+        )
+    )
     return {
         "example_name": example_name or "",
         "condition_name": condition_name or "",
@@ -209,8 +217,8 @@ def collect_summary_metrics(
         "detuning_fs_inv": solver.detuning_fs_inv,
         "rabi_fs_inv": solver.rabi_fs_inv,
         "rabi_code": solver.rabi,
-        "drive_class": drive_dict.get("class"),
-        "drive_expr": result.drive_expr,
+        "drive_class": drive_class,
+        "drive_expr": drive_expr,
         "envelope": envelope,
         "T1_fs": physical.T1_fs,
         "Tphi_fs": physical.Tphi_fs,

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from qutip import Qobj, mesolve
 
-from .fields import CarrierField, GaussianCarrierField
+from .fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
 from .model import (
     build_c_ops,
     build_lab_hamiltonian,
@@ -57,16 +57,16 @@ def _simulate_lab_for_check(
 ) -> tuple[np.ndarray, list[Qobj]]:
     times = _default_tlist(parameters)
     fields = (
-        (CarrierField(
-            amplitude=field_amplitude_override,
-            omega=parameters.omega_drive,
+        (CodeCarrierField(
+            amplitude_code=field_amplitude_override,
+            omega_code=parameters.omega_drive,
             phase=0.0,
-        ) if parameters.pulse_sigma is None else GaussianCarrierField(
-            amplitude=field_amplitude_override,
-            omega=parameters.omega_drive,
+        ) if parameters.pulse_sigma is None else CodeGaussianCarrierField(
+            amplitude_code=field_amplitude_override,
+            omega_code=parameters.omega_drive,
             phase=0.0,
-            center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-            sigma=parameters.pulse_sigma,
+            center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
+            sigma_code=parameters.pulse_sigma,
         )),
     )
     result = mesolve(

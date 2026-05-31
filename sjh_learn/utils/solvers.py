@@ -8,7 +8,12 @@ import numpy as np
 from qutip import Qobj, mesolve
 
 from .checks import evaluate_sanity_checks
-from .fields import CarrierField, ConstantDrive, GaussianCarrierField, GaussianDrive
+from .fields.solver_inputs import (
+    CodeCarrierField,
+    CodeConstantDrive,
+    CodeGaussianCarrierField,
+    CodeGaussianDrive,
+)
 from .model import (
     build_c_ops,
     build_lab_hamiltonian,
@@ -37,16 +42,16 @@ def simulate_lab_frame(
     fields = parameter_fields(parameters)
     if field_amplitude_override is not None:
         fields = (
-            (CarrierField(
-                amplitude=field_amplitude_override,
-                omega=parameters.omega_drive,
+            (CodeCarrierField(
+                amplitude_code=field_amplitude_override,
+                omega_code=parameters.omega_drive,
                 phase=0.0,
-            ) if parameters.pulse_sigma is None else GaussianCarrierField(
-                amplitude=field_amplitude_override,
-                omega=parameters.omega_drive,
+            ) if parameters.pulse_sigma is None else CodeGaussianCarrierField(
+                amplitude_code=field_amplitude_override,
+                omega_code=parameters.omega_drive,
                 phase=0.0,
-                center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-                sigma=parameters.pulse_sigma,
+                center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
+                sigma_code=parameters.pulse_sigma,
             )),
         )
     result = mesolve(
@@ -64,7 +69,7 @@ def simulate_rwa_frame(
     parameters: OpticalBlochParameters,
     times: np.ndarray | None = None,
     rho0: Qobj | None = None,
-    drive: ConstantDrive | GaussianDrive | None = None,
+    drive: CodeConstantDrive | CodeGaussianDrive | None = None,
 ) -> list[Qobj]:
     if times is None:
         times = _default_tlist(parameters)
@@ -83,15 +88,15 @@ def simulate_rwa_frame(
     return list(result.states)
 
 
-def default_rwa_drive(parameters: OpticalBlochParameters) -> ConstantDrive | GaussianDrive:
+def default_rwa_drive(parameters: OpticalBlochParameters) -> CodeConstantDrive | CodeGaussianDrive:
     amplitude = parameters.dipole * parameters.field_amplitude
     if parameters.pulse_sigma is None:
-        return ConstantDrive(name="rwa_cw_drive", amplitude=amplitude)
-    return GaussianDrive(
+        return CodeConstantDrive(name="rwa_cw_drive", amplitude_code=amplitude)
+    return CodeGaussianDrive(
         name="rwa_gaussian_drive",
-        amplitude=amplitude,
-        center=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-        sigma=parameters.pulse_sigma,
+        amplitude_code=amplitude,
+        center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
+        sigma_code=parameters.pulse_sigma,
     )
 
 
@@ -142,7 +147,7 @@ def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -
 def run_rwa_case(
     parameters: OpticalBlochParameters,
     rho0: Qobj | None = None,
-    drive: ConstantDrive | GaussianDrive | None = None,
+    drive: CodeConstantDrive | CodeGaussianDrive | None = None,
 ) -> DynamicsResult:
     times = _default_tlist(parameters)
     local_drive = default_rwa_drive(parameters) if drive is None else drive
