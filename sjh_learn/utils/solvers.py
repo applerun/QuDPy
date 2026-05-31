@@ -15,28 +15,28 @@ from .fields.solver_inputs import (
     CodeGaussianDrive,
 )
 from .model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_fields
-from .normalization import NLevelPhysicalParams, ParaNormalizer, SolverParams
-from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
+from .normalization import ParaNormalizer
+from .parameters import NLevelPhysicalParams, NLevelSolverParams, ParameterSweep, PhysicalParameterSweep, SolverParams
 from .results import DynamicsResult
 
 
-def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
+def _default_tlist(parameters: NLevelSolverParams) -> np.ndarray:
     if parameters.tlist is not None:
         return np.asarray(parameters.tlist, dtype=float)
     t_end = parameters.t_final if parameters.t_end is None else parameters.t_end
     return np.arange(parameters.t_start, t_end + 0.5 * parameters.dt, parameters.dt)
 
 
-def _mesolve_options(parameters: OpticalBlochParameters) -> dict[str, float]:
+def _mesolve_options(parameters: NLevelSolverParams) -> dict[str, float]:
     return {"max_step": float(parameters.dt)}
 
 
-def _rho0(parameters: OpticalBlochParameters, rho0: Qobj | None) -> Qobj:
+def _rho0(parameters: NLevelSolverParams, rho0: Qobj | None) -> Qobj:
     return initial_density_matrix(len(parameters.energies)) if rho0 is None else rho0
 
 
 def simulate_lab_frame(
-    parameters: OpticalBlochParameters,
+    parameters: NLevelSolverParams,
     rho0: Qobj | None = None,
     field_amplitude_override: float | None = None,
 ) -> tuple[np.ndarray, list[Qobj]]:
@@ -68,7 +68,7 @@ def simulate_lab_frame(
     return times, list(result.states)
 
 
-def default_rwa_drive(parameters: OpticalBlochParameters) -> CodeConstantDrive | CodeGaussianDrive:
+def default_rwa_drive(parameters: NLevelSolverParams) -> CodeConstantDrive | CodeGaussianDrive:
     # RWA Hamiltonian 已经携带 coupling_matrix；drive 只表示慢包络 f(t)。
     if parameters.pulse_sigma is None:
         return CodeConstantDrive(name="rwa_cw_envelope", amplitude_code=1.0)
@@ -81,7 +81,7 @@ def default_rwa_drive(parameters: OpticalBlochParameters) -> CodeConstantDrive |
 
 
 def simulate_rwa_frame(
-    parameters: OpticalBlochParameters,
+    parameters: NLevelSolverParams,
     times: np.ndarray | None = None,
     rho0: Qobj | None = None,
     drive: CodeConstantDrive | CodeGaussianDrive | None = None,
@@ -116,7 +116,7 @@ def _basic_sanity_checks(result: DynamicsResult) -> dict[str, object]:
     }
 
 
-def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -> DynamicsResult:
+def run_lab_case(parameters: NLevelSolverParams, rho0: Qobj | None = None) -> DynamicsResult:
     times, states = simulate_lab_frame(parameters, rho0=rho0)
     fields = parameter_fields(parameters)
     drive = fields[0] if len(fields) == 1 else None
@@ -137,7 +137,7 @@ def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -
 
 
 def run_rwa_case(
-    parameters: OpticalBlochParameters,
+    parameters: NLevelSolverParams,
     rho0: Qobj | None = None,
     drive: CodeConstantDrive | CodeGaussianDrive | None = None,
 ) -> DynamicsResult:
@@ -201,7 +201,7 @@ def optical_params_from_solver(
     solver: SolverParams,
     physical: NLevelPhysicalParams | None = None,
     normalizer: ParaNormalizer | None = None,
-) -> OpticalBlochParameters:
+) -> NLevelSolverParams:
     if normalizer is not None:
         times_fs = normalizer.denormalize_time_array(solver.tlist, solver)
     elif physical is not None:
@@ -209,7 +209,7 @@ def optical_params_from_solver(
     else:
         times_fs = None
 
-    return OpticalBlochParameters(
+    return NLevelSolverParams(
         t_start=solver.t_start,
         t_end=solver.t_end,
         dt=solver.dt,
@@ -235,7 +235,7 @@ def optical_params_from_solver(
     )
 
 
-def run_case(parameters: OpticalBlochParameters) -> DynamicsResult:
+def run_case(parameters: NLevelSolverParams) -> DynamicsResult:
     return run_lab_case(parameters)
 
 
@@ -258,7 +258,7 @@ def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
     for detuning in sweep.detunings:
         for field_amplitude in sweep.field_amplitudes:
             energies = (sweep.energies[0], sweep.omega_drive + detuning)
-            parameters = OpticalBlochParameters(
+            parameters = NLevelSolverParams(
                 t_final=sweep.t_final,
                 dt=sweep.dt,
                 hbar=sweep.hbar,
@@ -298,5 +298,9 @@ __all__ = [
     "optical_params_from_solver",
     "run_lab_case",
     "run_rwa_case",
+    "run_case",
+    "run_physical_case",
+    "run_parameter_sweep",
+    "run_physical_parameter_sweep",
     "make_rotating_view",
 ]

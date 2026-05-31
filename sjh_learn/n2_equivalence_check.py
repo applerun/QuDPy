@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""比较 two-level exact lab-frame 与等价 N=2 multi-level 路径。"""
+"""检查 N=2 physical mainline 的封装层与显式归一化路径是否一致。"""
 
 from __future__ import annotations
 
@@ -9,31 +9,48 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sjh_learn.utils import OpticalBlochParameters, two_level_multilevel_equivalence_check
+from sjh_learn.utils import (
+    NLevelPhysicalParams,
+    ParaNormalizer,
+    PureDephasingChannel,
+    RelaxationChannel,
+    n2_mainline_equivalence_check,
+)
+
+
+def make_physical_params() -> NLevelPhysicalParams:
+    """把旧 N=2 code-unit 检查映射成普通 `NLevelPhysicalParams`。
+
+    `time_scale_fs=1.0` 时，1 fs^-1 对应 1 solver code unit。这里把旧检查中
+    的目标耦合强度反推出 `dipole_matrix_D`，从而继续保持数值尺度接近旧版。
+    """
+
+    field_MV_per_cm = 0.7
+    old_code_dipole_01 = 0.08
+    dipole_01_D = old_code_dipole_01 / ParaNormalizer.DIPOLE_FIELD_TO_RABI_FS_INV
+    return NLevelPhysicalParams(
+        basis=("g", "e"),
+        energies_eV=(0.0, float(ParaNormalizer.fs_inv_to_energy_eV(1.25))),
+        dipole_matrix_D=((0.0, dipole_01_D), (dipole_01_D, 0.0)),
+        field_MV_per_cm=field_MV_per_cm,
+        laser_energy_eV=float(ParaNormalizer.fs_inv_to_energy_eV(1.0)),
+        t_start_fs=0.0,
+        t_end_fs=20.0,
+        dt_fs=0.01,
+        relaxation_channels=(
+            RelaxationChannel(name="relaxation_1_to_0", from_level=1, to_level=0, rate_fs_inv=0.03),
+        ),
+        pure_dephasing_channels=(
+            PureDephasingChannel(name="pure_dephasing_level_0", level=0, rate_fs_inv=0.02),
+            PureDephasingChannel(name="pure_dephasing_level_1", level=1, rate_fs_inv=0.02),
+        ),
+    )
 
 
 def main() -> None:
-    parameters = OpticalBlochParameters(
-        t_start=0.0,
-        t_final=20.0,
-        dt=0.01,
-        hbar=1.0,
-        energies=(0.0, 1.25),
-        dipole_matrix=((0.0, 0.08), (0.08, 0.0)),
-        field_amplitude=0.7,
-        omega_drive=1.0,
-        relaxation_channels=(
-            {"name": "relaxation_1_to_0", "from_level": 1, "to_level": 0, "rate_code": 0.03},
-        ),
-        pure_dephasing_channels=(
-            {"name": "pure_dephasing_level_0", "level": 0, "rate_code": 0.02},
-            {"name": "pure_dephasing_level_1", "level": 1, "rate_code": 0.02},
-        ),
-        gamma1=0.03,
-        gamma_phi=0.02,
-    )
-    differences = two_level_multilevel_equivalence_check(parameters)
-    print("Two-level vs N=2 multi-level equivalence check")
+    normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False)
+    differences = n2_mainline_equivalence_check(make_physical_params(), normalizer=normalizer)
+    print("N=2 physical mainline equivalence check")
     for key, value in differences.items():
         print(f"{key:<24}: {value:.6e}")
 

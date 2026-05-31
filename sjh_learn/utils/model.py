@@ -7,7 +7,7 @@ from qutip import Qobj, basis
 
 from .fields import FieldConfig, total_electric_field_value
 from .fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
-from .parameters import OpticalBlochParameters, as_complex_matrix
+from .parameters import NLevelSolverParams, as_complex_matrix
 
 
 def electric_field(times: np.ndarray, amplitude: float, omega_drive: float) -> np.ndarray:
@@ -23,7 +23,7 @@ def compute_energy_gap(detuning: float, omega_drive: float, hbar: float) -> floa
     return hbar * omega_drive + detuning
 
 
-def dimension(parameters: OpticalBlochParameters) -> int:
+def dimension(parameters: NLevelSolverParams) -> int:
     return len(parameters.energies)
 
 
@@ -59,7 +59,7 @@ def coherent_superposition_density_matrix() -> Qobj:
     return psi * psi.dag()
 
 
-def default_field_config(parameters: OpticalBlochParameters):
+def default_field_config(parameters: NLevelSolverParams):
     if parameters.pulse_sigma is None:
         return CodeCarrierField(
             amplitude_code=parameters.field_amplitude,
@@ -73,7 +73,7 @@ def default_field_config(parameters: OpticalBlochParameters):
     )
 
 
-def parameter_fields(parameters: OpticalBlochParameters) -> tuple[FieldConfig, ...]:
+def parameter_fields(parameters: NLevelSolverParams) -> tuple[FieldConfig, ...]:
     if parameters.fields is not None:
         return tuple(parameters.fields)
     return (default_field_config(parameters),)
@@ -91,11 +91,11 @@ def pulse_envelope(time: float, pulse_center: float | None, pulse_sigma: float |
     return float(field.envelope(time))
 
 
-def build_static_hamiltonian(parameters: OpticalBlochParameters) -> Qobj:
+def build_static_hamiltonian(parameters: NLevelSolverParams) -> Qobj:
     return Qobj(np.diag(np.asarray(parameters.energies, dtype=np.complex128)))
 
 
-def build_lab_hamiltonian(parameters: OpticalBlochParameters) -> list[Qobj | list[object]]:
+def build_lab_hamiltonian(parameters: NLevelSolverParams) -> list[Qobj | list[object]]:
     h0 = build_static_hamiltonian(parameters)
     dipole_operator = Qobj(as_complex_matrix(parameters.dipole_matrix))
     # H_int(t) = -E_code(t) * mu_code_matrix。这里所有量已经是 solver code unit。
@@ -108,7 +108,7 @@ def build_lab_hamiltonian(parameters: OpticalBlochParameters) -> list[Qobj | lis
     ]
 
 
-def build_rwa_hamiltonian(parameters: OpticalBlochParameters) -> list[Qobj | list[object]]:
+def build_rwa_hamiltonian(parameters: NLevelSolverParams) -> list[Qobj | list[object]]:
     energies = np.asarray(parameters.energies, dtype=float)
     n_levels = len(energies)
     shifted = energies - energies[0]
@@ -126,7 +126,7 @@ def _collapse_projector(n_levels: int, level: int) -> Qobj:
     return ket * ket.dag()
 
 
-def build_c_ops(parameters: OpticalBlochParameters) -> list[Qobj]:
+def build_c_ops(parameters: NLevelSolverParams) -> list[Qobj]:
     n_levels = dimension(parameters)
     c_ops: list[Qobj] = []
     for channel in parameters.relaxation_channels:

@@ -19,7 +19,6 @@ sjh_learn/
    │  └─ rwa_drives.py
    ├─ model.py
    ├─ solvers.py
-   ├─ multilevel.py
    ├─ results.py
    ├─ plotting.py
    ├─ io.py
@@ -81,7 +80,7 @@ two-level 求解入口：
 
 `run_lab_case` 使用 `build_lab_hamiltonian + build_c_ops + mesolve`。`run_rwa_case` 使用 callable `drive` 构造 time-dependent RWA Hamiltonian；CW 情况默认构造 `ConstantDrive`，pulse 预留 `GaussianDrive`。`make_rotating_view` 只对 `lab_result.states` 做幺正变换。
 
-RWA 中实际进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是 lab frame 的快速 optical carrier。若从真实物理参数出发，`field_MV_per_cm + dipole_D` 仍通过 `ParaNormalizer` 转换为 `rabi_fs_inv / rabi_code`。
+RWA 中实际进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是 lab frame 的快速 optical carrier。若从真实物理参数出发，`dipole_matrix_D` 与 `field_MV_per_cm` 会通过 `ParaNormalizer` 转换为物理耦合矩阵和内部 solver code-unit 耦合矩阵。
 
 ## results.py
 
@@ -181,9 +180,9 @@ rwa = run_rwa_case(parameters)
 
 脚本创建 3x3 对比图，列为 Lab frame、Rotating view、RWA，行为 input drive、population、coherence。最终图像由脚本调用 `save_figure()` 保存。
 
-`multilevel_demo.py` 仍只运行 exact lab-frame multilevel case。
+`multilevel_demo.py` 现在使用 `NLevelPhysicalParams` 构造普通 N=3 physical system，再经 `ParaNormalizer` 和 `run_physical_case()` 进入统一 N-level mainline。
 
-`n2_equivalence_check.py` 继续用于检查 two-level lab frame 与 N=2 multilevel lab frame 的一致性。
+`n2_equivalence_check.py` 继续保留验证意义，但不再依赖旧的 solver-ready multilevel route；它检查 N=2 `run_physical_case()` 封装层与显式 `ParaNormalizer -> run_lab_case()` 路径的一致性。
 
 ## RWA Example
 
@@ -225,7 +224,7 @@ Current `redistribution` is intentionally simplified to excited-to-ground T1 rel
 
 `field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
 
-Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical inputs, derived physical rates, a compact code-unit summary, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, drive metadata, solver internals, and sanity checks.
+Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical N-level inputs, physical field/drive information, derived physical rates, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, code-unit drive metadata, solver internals, and sanity checks.
 
 `rwa_02_dephasing.py`, `rwa_03_redistribution.py`, and `rwa_04_dephasing_and_redistribution.py` now each generate three condition groups: `resonant_strong`, `resonant_weak`, and `detuned_weak`. The `field_MV_per_cm = 0.1` cases are meant to show weak-drive dynamics, while `detuned_weak` shows how off-resonant driving changes population transfer and coherence response.
 
@@ -252,4 +251,4 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 - `populations.csv` contains all diagonal elements; `density.npz` contains the complete density-matrix trajectory.
 - `DynamicsResult` no longer exposes a two-level-only `components()` helper; result access should use `populations()`, `matrix_element()`, `matrix_elements()`, or dataframe exporters.
 - The two-level RWA examples still use two-level-specific summaries and plots by design; their `rho_11` / `rho_01` extraction is kept in example-level helpers, not in the generic result export.
-- `NLevelPhysicalParams` 已支持 N-level physical normalization；旧 `MultiLevelParameters` demo path 仍是 solver-ready/code-unit 输入路径。
+- 官方 multilevel route 是 `NLevelPhysicalParams -> ParaNormalizer -> NLevelSolverParams -> model.py -> solvers.py -> DynamicsResult`。two-level system 是普通 `N=2`，multilevel system 是普通 `N>2`；旧 solver-ready multilevel 路径已移除，普通示例不再直接构造 code-unit multilevel 输入。

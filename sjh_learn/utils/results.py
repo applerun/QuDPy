@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from qutip import Qobj
 
-from .normalization import NLevelPhysicalParams, SolverParams
+from .parameters import NLevelPhysicalParams, SolverParams
 
 
 def _require_pandas():

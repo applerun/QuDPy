@@ -42,7 +42,6 @@ def _mode_title(result: DynamicsResult) -> str:
         "lab_exact": "Lab frame",
         "rotating_view": "Rotating view",
         "rwa": "RWA",
-        "multilevel_lab": "Multi-level lab",
     }.get(result.mode, result.mode)
 
 

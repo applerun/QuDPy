@@ -1,156 +1,21 @@
-"""真实物理 N-level 系统到内部 solver code unit 的归一化工具。"""
+"""真实物理单位到 solver code unit 的归一化工具。
+
+本模块只负责单位换算和归一化：不定义主参数 dataclass，不构造
+Hamiltonian，也不生成 collapse operator。
+"""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from typing import Any, Optional
 
 import numpy as np
 
-
-@dataclass(frozen=True)
-class RelaxationChannel:
-    """人口弛豫通道：C_{to <- from} = sqrt(rate) |to><from|。"""
-
-    name: str
-    from_level: int
-    to_level: int
-    T1_fs: float | None = None
-    rate_fs_inv: float | None = None
-
-
-@dataclass(frozen=True)
-class PureDephasingChannel:
-    """能级投影退相干通道：C_level^phi = sqrt(rate) |level><level|。"""
-
-    name: str
-    level: int
-    Tphi_fs: float | None = None
-    rate_fs_inv: float | None = None
-
-
-@dataclass(frozen=True)
-class NLevelPhysicalParams:
-    """用户侧 N-level 物理输入。
-
-    所有普通输入保持真实物理单位：eV、Debye、MV/cm、fs。
-    `dipole_matrix_D` 是沿选定 optical polarization 投影后的偶极矩矩阵。
-    """
-
-    energies_eV: tuple[float, ...]
-    dipole_matrix_D: tuple[tuple[float, ...], ...]
-    field_MV_per_cm: float
-    laser_energy_eV: float
-    t_start_fs: float
-    t_end_fs: float
-    dt_fs: float
-    basis: tuple[str, ...] | None = None
-    relaxation_channels: tuple[RelaxationChannel, ...] = ()
-    pure_dephasing_channels: tuple[PureDephasingChannel, ...] = ()
-    pulse_center_fs: float | None = None
-    pulse_sigma_fs: float | None = None
-
-    @property
-    def dimension(self) -> int:
-        return len(self.energies_eV)
-
-    @property
-    def energy_gap_eV(self) -> float:
-        """N=2 示例层常用的 0->1 能隙；核心模型仍以 `energies_eV` 为准。"""
-        if self.dimension < 2:
-            raise ValueError("energy_gap_eV requires at least two levels.")
-        return float(self.energies_eV[1] - self.energies_eV[0])
-
-
-@dataclass
-class SolverParams:
-    """内部 solver 参数。
-
-    code unit 只供 Hamiltonian/c_ops 构造和 debug metadata 使用。
-    """
-
-    time_scale_fs: float
-    energies_fs_inv: np.ndarray
-    energies_code: np.ndarray
-    dipole_matrix_D: np.ndarray
-    coupling_matrix_fs_inv: np.ndarray
-    coupling_matrix_code: np.ndarray
-    relaxation_channels_fs_inv: tuple[dict[str, Any], ...]
-    pure_dephasing_channels_fs_inv: tuple[dict[str, Any], ...]
-    relaxation_channels_code: tuple[dict[str, Any], ...]
-    pure_dephasing_channels_code: tuple[dict[str, Any], ...]
-    omega_L_fs_inv: float
-    omega_L: float
-    t_start: float
-    t_end: float
-    dt: float
-    tlist: np.ndarray
-    pulse_center: Optional[float] = None
-    pulse_sigma: Optional[float] = None
-    pulse_center_fs: Optional[float] = None
-    pulse_sigma_fs: Optional[float] = None
-
-    @property
-    def omega_eg_fs_inv(self) -> float:
-        return float(self.energies_fs_inv[1] - self.energies_fs_inv[0]) if len(self.energies_fs_inv) >= 2 else 0.0
-
-    @property
-    def omega_eg(self) -> float:
-        return self.omega_eg_fs_inv * self.time_scale_fs
-
-    @property
-    def detuning_fs_inv(self) -> float:
-        return self.omega_eg_fs_inv - self.omega_L_fs_inv
-
-    @property
-    def detuning(self) -> float:
-        return self.detuning_fs_inv * self.time_scale_fs
-
-    @property
-    def rabi_fs_inv(self) -> float:
-        if self.coupling_matrix_fs_inv.shape[0] < 2:
-            return 0.0
-        return float(self.coupling_matrix_fs_inv[0, 1].real)
-
-    @property
-    def rabi(self) -> float:
-        return self.rabi_fs_inv * self.time_scale_fs
-
-    @property
-    def gamma1_fs_inv(self) -> float:
-        for channel in self.relaxation_channels_fs_inv:
-            if channel.get("from_level") == 1 and channel.get("to_level") == 0:
-                return float(channel["rate_fs_inv"])
-        return 0.0
-
-    @property
-    def gamma_phi_fs_inv(self) -> float:
-        if len(self.pure_dephasing_channels_fs_inv) == 1:
-            return float(self.pure_dephasing_channels_fs_inv[0]["rate_fs_inv"])
-        if len(self.pure_dephasing_channels_fs_inv) >= 2:
-            rates = [float(item["rate_fs_inv"]) for item in self.pure_dephasing_channels_fs_inv[:2]]
-            return 0.5 * sum(rates)
-        return 0.0
-
-    @property
-    def gamma2_fs_inv(self) -> float:
-        return self.gamma_phi_fs_inv + 0.5 * self.gamma1_fs_inv
-
-    @property
-    def gamma1(self) -> float:
-        return self.gamma1_fs_inv * self.time_scale_fs
-
-    @property
-    def gamma_phi(self) -> float:
-        return self.gamma_phi_fs_inv * self.time_scale_fs
-
-    @property
-    def gamma2(self) -> float:
-        return self.gamma2_fs_inv * self.time_scale_fs
+from .parameters import NLevelPhysicalParams, PureDephasingChannel, RelaxationChannel, SolverParams
 
 
 class ParaNormalizer:
-    """把真实物理单位转换为 solver code unit 的归一化器。"""
+    """把 `NLevelPhysicalParams` 转换为 solver 可用的 code-unit 参数。"""
 
     HBAR_J_S = 1.054571817e-34
     E_CHARGE_C = 1.602176634e-19
@@ -259,8 +124,7 @@ class ParaNormalizer:
             return 1.0
         positive = [value for value in candidates if value > 0]
         if not positive:
-            nonzero_energies = [abs(float(value)) for value in energies_fs_inv if abs(value) > 0]
-            positive.extend(nonzero_energies)
+            positive.extend(abs(float(value)) for value in energies_fs_inv if abs(value) > 0)
         if not positive:
             return 1.0
         return 1.0 / max(positive)
@@ -375,10 +239,4 @@ class ParaNormalizer:
         }
 
 
-__all__ = [
-    "ParaNormalizer",
-    "NLevelPhysicalParams",
-    "RelaxationChannel",
-    "PureDephasingChannel",
-    "SolverParams",
-]
+__all__ = ["ParaNormalizer"]

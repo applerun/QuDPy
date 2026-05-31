@@ -254,21 +254,6 @@ def _solver_representation_metadata(result: ResultLike) -> dict[str, Any]:
             "rwa_approximation_applied": True,
             "independently_solved_by_mesolve": True,
         }
-    if mode == "multilevel_lab":
-        return {
-            "mode": "multilevel_lab",
-            "description": "Direct multi-level lab-frame propagation using solver-ready units.",
-            "hamiltonian_type": "time-dependent multi-level lab-frame Hamiltonian",
-            "uses_lab_field_directly": True,
-            "uses_rwa_drive": False,
-            "uses_rotating_transform": False,
-            "carrier_retained": True,
-            "counter_rotating_terms_retained": True,
-            "rwa_approximation_applied": False,
-            "independently_solved_by_mesolve": True,
-            "unit_system": "solver_ready_code_units",
-            "physical_normalization": "not_implemented_for_multilevel_path",
-        }
     return {
         "mode": mode,
         "description": "Simulation representation is not specialized for this mode.",
@@ -333,15 +318,12 @@ def _input_drive_metadata(result: ResultLike, physical: Any, solver: Any, parame
         "drive_symbol": "g(t)",
         "expression": "g(t) = mu E0 f(t) / hbar",
         "amplitude_fs_inv": None if solver is None else solver.rabi_fs_inv,
-        "amplitude_code": None if solver is None else solver.rabi,
         "source": "derived from dipole_matrix_D and field_MV_per_cm",
         "domain": "RWA",
         "drive_unit_physical": "fs^-1",
-        "drive_unit_code": "code",
         "envelope": envelope,
         "amplitude_convention": "input_drive is the slow RWA coupling after removing the optical carrier.",
         "drive_expr": drive_expr,
-        "parameters_field_amplitude_code": getattr(parameters, "field_amplitude", None),
     }
 
 
@@ -408,18 +390,8 @@ def _human_metadata(
             "coupling_matrix_fs_inv": solver.coupling_matrix_fs_inv,
         }
         meta["solver_code_summary"] = {
-            "time_scale_fs": solver.time_scale_fs,
-            "detuning_code": solver.detuning,
-            "field_amplitude_code": getattr(parameters, "field_amplitude", None),
-            "omega_drive_code": getattr(parameters, "omega_drive", None),
-            "energies_code": solver.energies_code,
-            "coupling_matrix_code": solver.coupling_matrix_code,
-            "gamma1_code": solver.gamma1,
-            "gamma_phi_code": solver.gamma_phi,
-            "gamma2_code": solver.gamma2,
-            "t_start_code": solver.t_start,
-            "t_end_code": solver.t_end,
-            "dt_code": solver.dt,
+            "description": "内部 solver code-unit 细节保存在 debug_meta.json；meta.json 只保留物理单位优先的信息。",
+            "debug_metadata": "debug_meta.json",
         }
     else:
         meta["derived_physical"] = None
@@ -427,12 +399,6 @@ def _human_metadata(
 
     meta["trajectory_summary"] = _trajectory_summary(result)
     meta["component_export"] = _component_export_metadata(result)
-    if getattr(result, "mode", None) == "multilevel_lab":
-        meta["multilevel_units"] = {
-            "description": "The current multi-level path assumes solver-ready/code-unit inputs.",
-            "physical_normalization": "not_implemented",
-            "normalizer": "ParaNormalizer is currently a two-level physical-parameter helper.",
-        }
     meta["output_files"] = output_files or {}
     return _json_safe(meta)
 

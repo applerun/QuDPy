@@ -1,6 +1,6 @@
 """Shared utilities for `sjh_learn`."""
 
-from .checks import evaluate_sanity_checks
+from .checks import evaluate_sanity_checks, n2_mainline_equivalence_check
 from .fields import (
     CarrierField,
     CarrierFieldPhysical,
@@ -35,25 +35,17 @@ from .io import (
     save_results_components_long,
 )
 from .model import build_c_ops, build_lab_hamiltonian, compute_detuning, compute_energy_gap
-from .multilevel import (
-    CollapseChannel,
-    MultiLevelParameters,
-    build_multilevel_c_ops,
-    build_multilevel_lab_hamiltonian,
-    optical_bloch_to_multilevel_parameters,
-    run_multilevel_lab_case,
-    run_multilevel_case,
-    simulate_multilevel_lab_frame,
-    two_level_multilevel_equivalence_check,
-)
-from .normalization import (
+from .normalization import ParaNormalizer
+from .parameters import (
     NLevelPhysicalParams,
-    ParaNormalizer,
+    NLevelSolverParams,
+    OpticalBlochParameters,
+    ParameterSweep,
+    PhysicalParameterSweep,
     PureDephasingChannel,
     RelaxationChannel,
     SolverParams,
 )
-from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
 from .plotting import (
     build_preview_figure,
     plot_coherences,
@@ -70,7 +62,11 @@ from .solvers import (
     optical_params_from_solver,
     rotate_density_trajectory,
     rotating_frame_unitary,
+    run_case,
     run_lab_case,
+    run_parameter_sweep,
+    run_physical_case,
+    run_physical_parameter_sweep,
     run_rwa_case,
     simulate_lab_frame,
     simulate_rwa_frame,
@@ -78,6 +74,7 @@ from .solvers import (
 
 __all__ = [
     "DynamicsResult",
+    "NLevelSolverParams",
     "OpticalBlochParameters",
     "NLevelPhysicalParams",
     "RelaxationChannel",
@@ -111,15 +108,6 @@ __all__ = [
     "compute_energy_gap",
     "build_lab_hamiltonian",
     "build_c_ops",
-    "MultiLevelParameters",
-    "CollapseChannel",
-    "build_multilevel_lab_hamiltonian",
-    "build_multilevel_c_ops",
-    "optical_bloch_to_multilevel_parameters",
-    "simulate_multilevel_lab_frame",
-    "run_multilevel_lab_case",
-    "run_multilevel_case",
-    "two_level_multilevel_equivalence_check",
     "QuantumResultIO",
     "ResultManager",
     "default_output_path",
@@ -134,7 +122,11 @@ __all__ = [
     "rotate_density_trajectory",
     "optical_params_from_solver",
     "default_rwa_drive",
+    "run_case",
     "run_lab_case",
+    "run_physical_case",
+    "run_parameter_sweep",
+    "run_physical_parameter_sweep",
     "run_rwa_case",
     "make_rotating_view",
     "plot_field",
@@ -145,4 +137,5 @@ __all__ = [
     "plot_multilevel_components",
     "build_preview_figure",
     "evaluate_sanity_checks",
+    "n2_mainline_equivalence_check",
 ]

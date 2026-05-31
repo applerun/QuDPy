@@ -23,7 +23,7 @@
 - `utils/fields/solver_inputs.py`: solver-internal code-unit callables such as `CodeCarrierField`, `CodeConstantDrive`, and `CodeGaussianDrive`.
 - `utils/fields/__init__.py`: public re-exports. Backward-compatible names such as `CarrierField` and `ConstantDrive` now point to physical user-facing classes; solver internals import `Code*` classes explicitly.
 
-User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Ordinary examples should set `NLevelPhysicalParams` or physical field/drive objects; `amplitude_code`, `time_unit="code"`, and `domain="solver_code"` belong only to `ParaNormalizer`, solver/model internals, `debug_meta.json`, or `solver_code_summary`.
+User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Ordinary examples should set `NLevelPhysicalParams` or physical field/drive objects; `amplitude_code`, `time_unit="code"`, and `domain="solver_code"` belong only to `ParaNormalizer`, solver/model internals, or `debug_meta.json`.
 
 The lab-frame field and RWA drive are intentionally different objects:
 
@@ -158,7 +158,7 @@ Current `redistribution` is intentionally simplified to excited-to-ground T1 rel
 
 `field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
 
-Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical inputs, derived physical rates, a compact code-unit summary, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, drive metadata, solver internals, and sanity checks.
+Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical N-level inputs, physical field/drive information, derived physical rates, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, code-unit drive metadata, solver internals, and sanity checks.
 
 ## Unit Conventions
 
@@ -167,10 +167,10 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - population relaxation 由 `relaxation_channels` 定义，每个通道表示 `C_{to <- from} = sqrt(rate) |to><from|`。通道可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
 - pure dephasing 由 `pure_dephasing_channels` 定义，每个通道表示 `C_level^phi = sqrt(rate) |level><level|`。通道可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。
 - 标量 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 不再是核心物理模型输入；如果某个 N=2 example 需要这些概念，会在 example-local helper 中把它们翻译成 `dipole_matrix_D` 和 channel list。
-- `NLevelPhysicalParams` uses physical units such as `energies_eV`, `dipole_matrix_D`, `field_MV_per_cm`, `time_fs`, and channel rates in `fs^-1`.
-- `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, drive, and decay rates.
-- Solver and model code are allowed to use code units internally.
-- User-facing field/drive classes use physical units only: `E0_MV_per_cm`, `laser_energy_eV` or `omega_L_fs_inv`, `phase_rad`, `pulse_center_fs`, `pulse_sigma_fs`, and RWA `amplitude_fs_inv`.
+- `NLevelPhysicalParams` 使用真实物理单位，例如 `energies_eV`、`dipole_matrix_D`、`field_MV_per_cm`、`time_fs` 和 `fs^-1` 速率。
+- `ParaNormalizer` 把这些物理单位转换为 solver 内部使用的 code unit，包括时间、频率、drive 和 decay rate。
+- `model.py` 构造 N-level 的 `H0`、`H_int(t)` 和 Lindblad `c_ops`；`solvers.py` 每次只返回一条 `DynamicsResult` 轨迹。
+- 用户侧 field/drive 类只使用物理单位：`E0_MV_per_cm`、`laser_energy_eV` 或 `omega_L_fs_inv`、`phase_rad`、`pulse_center_fs`、`pulse_sigma_fs`，以及 RWA `amplitude_fs_inv`。
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
@@ -182,4 +182,4 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - `populations.csv` saves every diagonal population, and `density.npz` always contains the full density-matrix trajectory.
 - `DynamicsResult` is a dimension-aware result object and does not provide a two-level-only `components()` helper.
 - Two-level demos and RWA examples remain intentionally two-level specific where they compare `rho_11` and `rho_01`; that extraction now lives in example-level helpers.
-- N-level physical normalization is implemented for `NLevelPhysicalParams`; the older `MultiLevelParameters` demo path still assumes solver-ready/code-unit inputs.
+- 官方 multilevel 路线已经统一为 `NLevelPhysicalParams`：two-level system 是普通 `N=2`，multilevel system 是普通 `N>2`。旧的 solver-ready multilevel 路径已移除，普通示例不再直接构造 code-unit multilevel 输入。
