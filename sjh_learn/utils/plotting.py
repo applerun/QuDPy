@@ -52,6 +52,13 @@ def _times_and_label(result: DynamicsResult) -> tuple[np.ndarray, str]:
     return result.times, "Time"
 
 
+def _upper_triangular_pairs(dimension: int, max_pairs: int | None = None) -> list[tuple[int, int]]:
+    pairs = [(i, j) for i in range(dimension) for j in range(i + 1, dimension)]
+    if max_pairs is not None:
+        return pairs[:max_pairs]
+    return pairs
+
+
 def plot_field(
     field,
     times,
@@ -135,7 +142,7 @@ def plot_populations(result: DynamicsResult, ax=None, populations=None, *, title
     colors = _plasma_colors(len(population_indices))
 
     for color, index in zip(colors, population_indices):
-        ax.plot(times, density[:, index, index].real, label=fr"$\rho_{{{index + 1}{index + 1}}}$", color=color)
+        ax.plot(times, density[:, index, index].real, label=fr"$\rho_{{{index}{index}}}$", color=color)
     ax.set_xlabel(time_label)
     ax.set_ylabel("Population")
     if title is not None:
@@ -145,22 +152,82 @@ def plot_populations(result: DynamicsResult, ax=None, populations=None, *, title
     return fig, ax
 
 
-def plot_coherences(result: DynamicsResult, ax=None, coherences=None, *, title: str | None = None):
+def plot_coherences(
+    result: DynamicsResult,
+    ax=None,
+    coherences=None,
+    *,
+    title: str | None = None,
+    max_pairs: int | None = 6,
+):
     fig, ax = _new_axes(ax)
     times, time_label = _times_and_label(result)
     if coherences is None:
-        coherences = [(0, 1)] if result.dimension() >= 2 else []
+        coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
     colors = _plasma_colors(max(2, 2 * len(coherences)))
 
     for pair_index, (i, j) in enumerate(coherences):
         values = result.matrix_element(i, j)
-        label = fr"$\rho_{{{i + 1}{j + 1}}}$"
+        label = fr"$\rho_{{{i}{j}}}$"
         color_re = colors[2 * pair_index]
         color_im = colors[2 * pair_index + 1]
         ax.plot(times, values.real, label=f"Re({label})", color=color_re)
         ax.plot(times, values.imag, linestyle="--", label=f"Im({label})", color=color_im)
     ax.set_xlabel(time_label)
     ax.set_ylabel("Coherence")
+    if title is not None:
+        ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    return fig, ax
+
+
+def plot_coherence_abs(
+    result: DynamicsResult,
+    ax=None,
+    coherences=None,
+    *,
+    title: str | None = None,
+    max_pairs: int | None = 6,
+):
+    fig, ax = _new_axes(ax)
+    times, time_label = _times_and_label(result)
+    if coherences is None:
+        coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
+    colors = _plasma_colors(len(coherences))
+    for color, (i, j) in zip(colors, coherences):
+        values = result.matrix_element(i, j)
+        ax.plot(times, np.abs(values), label=fr"$|\rho_{{{i}{j}}}|$", color=color)
+    ax.set_xlabel(time_label)
+    ax.set_ylabel("|Coherence|")
+    if title is not None:
+        ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    return fig, ax
+
+
+def plot_coherence_phases(
+    result: DynamicsResult,
+    ax=None,
+    coherences=None,
+    *,
+    title: str | None = None,
+    max_pairs: int | None = 6,
+    mask_threshold: float = 1e-8,
+):
+    fig, ax = _new_axes(ax)
+    times, time_label = _times_and_label(result)
+    if coherences is None:
+        coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
+    colors = _plasma_colors(len(coherences))
+    for color, (i, j) in zip(colors, coherences):
+        values = result.matrix_element(i, j)
+        phase = np.unwrap(np.angle(values)).astype(float)
+        phase[np.abs(values) < mask_threshold] = np.nan
+        ax.plot(times, phase, label=fr"$phase(\rho_{{{i}{j}}})$", color=color)
+    ax.set_xlabel(time_label)
+    ax.set_ylabel("Phase (rad)")
     if title is not None:
         ax.set_title(title)
     ax.grid(True, alpha=0.3)
@@ -190,7 +257,8 @@ def plot_density_components(
     plot_populations(result, ax=axes_flat[row])
     axes_flat[row].set_xlabel("")
     row += 1
-    plot_coherences(result, ax=axes_flat[row], coherences=[(0, 1)])
+    default_coherences = [(0, 1)] if result.dimension() == 2 else None
+    plot_coherences(result, ax=axes_flat[row], coherences=default_coherences)
     return fig, axes_array
 
 
@@ -201,29 +269,41 @@ def plot_multilevel_components(
     populations: list[int] | tuple[int, ...] | None = None,
     coherences: list[tuple[int, int]] | tuple[tuple[int, int], ...] | None = None,
     title: str | None = None,
+    max_pairs: int | None = 6,
 ):
+    if coherences is None and result.dimension() >= 2:
+        coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
     n_rows = 1 if not coherences else 2
     fig, axes_array = _new_axes_array(axes, nrows=n_rows, ncols=1, figsize=(7.0, 2.8 + 2.1 * (n_rows - 1)), sharex=True)
     axes_flat = axes_array.reshape(-1)
     plot_populations(result, ax=axes_flat[0], populations=populations, title=title if title is not None else "Multi-level")
     if coherences:
-        plot_coherences(result, ax=axes_flat[1], coherences=coherences)
+        plot_coherences(result, ax=axes_flat[1], coherences=coherences, max_pairs=max_pairs)
         axes_flat[0].set_xlabel("")
     return fig, axes_array
 
 
-def build_preview_figure(result: DynamicsResult, *, coherences=None, display_code_unit: bool = False):
+def build_preview_figure(
+    result: DynamicsResult,
+    *,
+    coherences=None,
+    display_code_unit: bool = False,
+    max_pairs: int | None = 6,
+):
     if result.dimension() == 2:
         fig, axes = plot_density_components(result, include_drive=True, display_code_unit=display_code_unit)
     else:
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(3, 1, figsize=(5.6, 4.9), sharex=True)
-        plot_drive(result, ax=axes[0], display_code_unit=display_code_unit)
-        axes[0].set_title(_mode_title(result))
-        plot_populations(result, ax=axes[1])
+        selected_coherences = coherences
+        if selected_coherences is None:
+            selected_coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
+        plot_populations(result, ax=axes[0], title=_mode_title(result))
+        axes[0].set_xlabel("")
+        plot_coherence_abs(result, ax=axes[1], coherences=selected_coherences, max_pairs=max_pairs)
         axes[1].set_xlabel("")
-        plot_coherences(result, ax=axes[2], coherences=coherences or [(0, 1)])
+        plot_coherence_phases(result, ax=axes[2], coherences=selected_coherences, max_pairs=max_pairs)
     fig.tight_layout()
     return fig, axes
 
@@ -233,6 +313,8 @@ __all__ = [
     "plot_drive",
     "plot_populations",
     "plot_coherences",
+    "plot_coherence_abs",
+    "plot_coherence_phases",
     "plot_density_components",
     "plot_multilevel_components",
     "build_preview_figure",

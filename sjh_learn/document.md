@@ -144,7 +144,7 @@ case_dir/
 └─ meta.json
 ```
 
-`meta.json` 包含 mode、`physical_params`、`solver_params_fs_inv`、`solver_params_code`、`drive_dict`、`drive_expr`、trace error 和 Hermiticity error。`components.csv` 对 two-level result 输出 `time_fs`、`rho11`、`rho22`、`Re_rho12`、`Im_rho12`、`abs_rho12`，并在可用时输出 `drive_code`、`drive_fs_inv` 和 `field_MV_per_cm`。
+`meta.json` 包含 mode、`physical_params`、`solver_params_fs_inv`、`solver_params_code`、`drive_dict`、`drive_expr`、trace error 和 Hermiticity error。`components.csv` 现在是 dimension-aware：输出 `time_fs`、所有 diagonal populations（例如 `rho_00`）、所有 upper-triangular coherences（例如 `Re_rho_01`、`Im_rho_01`、`abs_rho_01`、`phase_rho_01`），并在可用时输出 `drive_code`、`drive_fs_inv` 和 `field_MV_per_cm`。
 
 density matrix、population、coherence 都是无量纲量；时间轴优先保存真实 fs。
 
@@ -181,9 +181,9 @@ rwa = run_rwa_case(parameters)
 - `meta.json`
 - `figs/preview.png`
 
-总图 `comparison.png` 至少包含 `Omega(t)`、`rho22(t)`、`abs_rho12(t)`。`results.csv` 记录 `field_MV_per_cm`、`rabi_fs_inv`、`rabi_code`、`max_rho22`、`final_rho22`、`max_abs_rho12`、`final_abs_rho12`。
+总图 `comparison.png` 至少包含 `Omega(t)`、`rho_11(t)`、`abs_rho_01(t)`。`results.csv` 记录 `field_MV_per_cm`、`rabi_fs_inv`、`rabi_code`、`max_rho_11`、`final_rho_11`、`max_abs_rho_01`、`final_abs_rho_01`。
 
-预期物理结果：场强越大，Rabi frequency 越大，`rho22` 振荡周期越短；无 relaxation / dephasing 时振荡不应衰减；共振且强度足够时 `rho22` 可接近 1。
+预期物理结果：场强越大，Rabi frequency 越大，excited-state population `rho_11` 振荡周期越短；无 relaxation / dephasing 时振荡不应衰减；共振且强度足够时 `rho_11` 可接近 1。
 
 ## RWA Examples
 
@@ -200,7 +200,7 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 
 `rwa_02_dephasing.py`, `rwa_03_redistribution.py`, and `rwa_04_dephasing_and_redistribution.py` now each generate three condition groups: `resonant_strong`, `resonant_weak`, and `detuned_weak`. The `field_MV_per_cm = 0.1` cases are meant to show weak-drive dynamics, while `detuned_weak` shows how off-resonant driving changes population transfer and coherence response.
 
-RWA comparison plots now contain four rows: `Omega(t)`, `rho22(t)`, `abs_rho12(t)`, and `phase(rho12)`. The phase trace is unwrapped, and low-amplitude regions with very small `abs(rho12)` are masked with `NaN` because the phase there is not numerically meaningful. RWA example comparisons also use colormap gradients rather than matplotlib's default color cycle.
+RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01(t)`, and `phase(rho_01)`. The phase trace is unwrapped, and low-amplitude regions with very small `abs(rho_01)` are masked with `NaN` because the phase there is not numerically meaningful. RWA example comparisons also use colormap gradients rather than matplotlib's default color cycle.
 
 ## Unit Conventions
 
@@ -210,3 +210,12 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho22(t)`, `abs_rho12(t
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
+
+## Multi-Level Compatibility Notes
+
+- `components_dataframe()` and `components.csv` are dimension-aware. They save all diagonal populations as `rho_00`, `rho_11`, ... and all upper-triangular coherences as `rho_ij` components.
+- Each coherence exports real, imaginary, absolute value, masked phase, and unwrapped masked phase columns.
+- `populations.csv` contains all diagonal elements; `density.npz` contains the complete density-matrix trajectory.
+- `DynamicsResult` no longer exposes a two-level-only `components()` helper; result access should use `populations()`, `matrix_element()`, `matrix_elements()`, or dataframe exporters.
+- The two-level RWA examples still use two-level-specific summaries and plots by design; their `rho_11` / `rho_01` extraction is kept in example-level helpers, not in the generic result export.
+- Multi-level physical normalization has not been generalized from the two-level `ParaNormalizer`; current `MultiLevelParameters` are treated as solver-ready/code-unit inputs.

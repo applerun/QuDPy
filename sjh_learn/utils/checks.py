@@ -27,6 +27,29 @@ def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
     return np.arange(parameters.t_start, t_end + 0.5 * parameters.dt, parameters.dt)
 
 
+def _two_level_elements_from_states(states: list[Qobj]) -> dict[str, np.ndarray]:
+    density = np.stack([state.full() for state in states], axis=0)
+    if density.shape[1:] != (2, 2):
+        raise ValueError("This sanity check is only defined for two-level density matrices.")
+    return {
+        "rho_00": density[:, 0, 0],
+        "rho_11": density[:, 1, 1],
+        "rho_01": density[:, 0, 1],
+        "rho_10": density[:, 1, 0],
+    }
+
+
+def _two_level_elements_from_result(result: DynamicsResult) -> dict[str, np.ndarray]:
+    if result.dimension() != 2:
+        raise ValueError("evaluate_sanity_checks() is only defined for two-level results.")
+    return {
+        "rho_00": result.matrix_element(0, 0),
+        "rho_11": result.matrix_element(1, 1),
+        "rho_01": result.matrix_element(0, 1),
+        "rho_10": result.matrix_element(1, 0),
+    }
+
+
 def _simulate_lab_for_check(
     parameters: OpticalBlochParameters,
     rho0: Qobj,
@@ -60,14 +83,15 @@ def _simulate_lab_for_check(
 def _simulate_relaxation_sanity(parameters: OpticalBlochParameters) -> dict[str, Any]:
     aux_parameters = replace(parameters, gamma_phi=0.0)
     times, states = _simulate_lab_for_check(aux_parameters, excited_density_matrix(), 0.0)
-    rho11 = np.array([state.full()[0, 0] for state in states])
-    rho22 = np.array([state.full()[1, 1] for state in states])
+    elements = _two_level_elements_from_states(states)
+    rho_00 = elements["rho_00"]
+    rho_11 = elements["rho_11"]
     return {
-        "rho22_initial": float(rho22[0].real),
-        "rho22_final": float(rho22[-1].real),
-        "rho11_initial": float(rho11[0].real),
-        "rho11_final": float(rho11[-1].real),
-        "passed": bool(rho22[-1].real < rho22[0].real and rho11[-1].real > rho11[0].real),
+        "rho_11_initial": float(rho_11[0].real),
+        "rho_11_final": float(rho_11[-1].real),
+        "rho_00_initial": float(rho_00[0].real),
+        "rho_00_final": float(rho_00[-1].real),
+        "passed": bool(rho_11[-1].real < rho_11[0].real and rho_00[-1].real > rho_00[0].real),
         "time_points": len(times),
     }
 
@@ -75,22 +99,23 @@ def _simulate_relaxation_sanity(parameters: OpticalBlochParameters) -> dict[str,
 def _simulate_pure_dephasing_sanity(parameters: OpticalBlochParameters) -> dict[str, Any]:
     aux_parameters = replace(parameters, gamma1=0.0)
     times, states = _simulate_lab_for_check(aux_parameters, coherent_superposition_density_matrix(), 0.0)
-    rho11 = np.array([state.full()[0, 0] for state in states])
-    rho22 = np.array([state.full()[1, 1] for state in states])
-    rho12 = np.array([state.full()[0, 1] for state in states])
+    elements = _two_level_elements_from_states(states)
+    rho_00 = elements["rho_00"]
+    rho_11 = elements["rho_11"]
+    rho_01 = elements["rho_01"]
     return {
         "population_change_max": float(
             max(
-                np.max(np.abs(rho11.real - rho11.real[0])),
-                np.max(np.abs(rho22.real - rho22.real[0])),
+                np.max(np.abs(rho_00.real - rho_00.real[0])),
+                np.max(np.abs(rho_11.real - rho_11.real[0])),
             )
         ),
-        "coherence_abs_initial": float(abs(rho12[0])),
-        "coherence_abs_final": float(abs(rho12[-1])),
+        "coherence_abs_initial": float(abs(rho_01[0])),
+        "coherence_abs_final": float(abs(rho_01[-1])),
         "passed": bool(
-            np.max(np.abs(rho11.real - rho11.real[0])) < 1e-6
-            and np.max(np.abs(rho22.real - rho22.real[0])) < 1e-6
-            and abs(rho12[-1]) < abs(rho12[0])
+            np.max(np.abs(rho_00.real - rho_00.real[0])) < 1e-6
+            and np.max(np.abs(rho_11.real - rho_11.real[0])) < 1e-6
+            and abs(rho_01[-1]) < abs(rho_01[0])
         ),
         "time_points": len(times),
     }
@@ -99,11 +124,12 @@ def _simulate_pure_dephasing_sanity(parameters: OpticalBlochParameters) -> dict[
 def _simulate_closed_system_sanity(parameters: OpticalBlochParameters) -> dict[str, Any]:
     aux_parameters = replace(parameters, gamma1=0.0, gamma_phi=0.0)
     times, states = _simulate_lab_for_check(aux_parameters, initial_density_matrix(), 0.0)
-    rho11 = np.array([state.full()[0, 0] for state in states])
-    rho22 = np.array([state.full()[1, 1] for state in states])
+    elements = _two_level_elements_from_states(states)
+    rho_00 = elements["rho_00"]
+    rho_11 = elements["rho_11"]
     variation = max(
-        np.max(np.abs(rho11.real - rho11.real[0])),
-        np.max(np.abs(rho22.real - rho22.real[0])),
+        np.max(np.abs(rho_00.real - rho_00.real[0])),
+        np.max(np.abs(rho_11.real - rho_11.real[0])),
     )
     return {
         "population_change_max": float(variation),
@@ -113,7 +139,9 @@ def _simulate_closed_system_sanity(parameters: OpticalBlochParameters) -> dict[s
 
 
 def evaluate_sanity_checks(result: DynamicsResult) -> dict[str, Any]:
-    rho11, rho22, rho12, rho21 = result.components()
+    elements = _two_level_elements_from_result(result)
+    rho_01 = elements["rho_01"]
+    rho_10 = elements["rho_10"]
     max_trace_error = result.max_trace_error()
     max_hermiticity_error = result.max_hermiticity_error()
     checks: dict[str, Any] = {
@@ -136,8 +164,8 @@ def evaluate_sanity_checks(result: DynamicsResult) -> dict[str, Any]:
         checks["population_relaxation_auxiliary"] = _simulate_relaxation_sanity(result.parameters)
 
     checks["coherence_norm_final"] = {
-        "rho12_abs_final": float(abs(rho12[-1])),
-        "rho21_abs_final": float(abs(rho21[-1])),
+        "rho_01_abs_final": float(abs(rho_01[-1])),
+        "rho_10_abs_final": float(abs(rho_10[-1])),
     }
     return checks
 

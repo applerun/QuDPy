@@ -81,7 +81,7 @@ def main() -> None:
     for row in rows:
         print(
             f"{row['case_name']}: rabi_fs_inv={row['rabi_fs_inv']:.6g}, "
-            f"max_rho22={row['max_rho22']:.6f}, final_rho22={row['final_rho22']:.6f}"
+            f"max_rho_11={row['max_rho_11']:.6f}, final_rho_11={row['final_rho_11']:.6f}"
         )
 
 

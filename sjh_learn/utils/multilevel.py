@@ -201,12 +201,19 @@ def coherent_multilevel_density_matrix(amplitudes: list[complex] | tuple[complex
     return ket * ket.dag()
 
 
+def _validate_rho0_dimension(rho0: Qobj, n_levels: int) -> None:
+    if rho0.shape != (n_levels, n_levels):
+        raise ValueError("rho0 shape must match the number of multi-level states.")
+
+
 def simulate_multilevel_lab_frame(
     parameters: MultiLevelParameters,
     rho0: Qobj | None = None,
 ) -> tuple[np.ndarray, list[Qobj]]:
     n_levels = _validate_multilevel_parameters(parameters)
     times = _default_tlist(parameters)
+    if rho0 is not None:
+        _validate_rho0_dimension(rho0, n_levels)
     result = mesolve(
         H=build_multilevel_lab_hamiltonian(parameters),
         rho0=initial_multilevel_density_matrix(n_levels) if rho0 is None else rho0,
@@ -248,6 +255,11 @@ def run_multilevel_lab_case(
         times=times,
         times_fs=parameters.times_fs,
         states=states,
+        metadata={
+            "unit_system": "solver_ready_code_units",
+            "physical_normalization": "not_implemented_for_multilevel_path",
+            "normalization_note": "MultiLevelParameters are interpreted directly by the solver.",
+        },
     )
     result.sanity_checks = _evaluate_multilevel_sanity_checks(result)
     return result
@@ -278,16 +290,16 @@ def two_level_multilevel_equivalence_check(parameters: OpticalBlochParameters) -
     if density_two.shape != density_multi.shape or not np.allclose(times_two, times_multi):
         raise ValueError("two-level 与 multi-level equivalence check 的时间网格不一致。")
 
-    rho11_diff = float(np.max(np.abs(density_two[:, 0, 0] - density_multi[:, 0, 0])))
-    rho22_diff = float(np.max(np.abs(density_two[:, 1, 1] - density_multi[:, 1, 1])))
-    rho12_diff = float(np.max(np.abs(density_two[:, 0, 1] - density_multi[:, 0, 1])))
-    rho21_diff = float(np.max(np.abs(density_two[:, 1, 0] - density_multi[:, 1, 0])))
+    rho_00_diff = float(np.max(np.abs(density_two[:, 0, 0] - density_multi[:, 0, 0])))
+    rho_11_diff = float(np.max(np.abs(density_two[:, 1, 1] - density_multi[:, 1, 1])))
+    rho_01_diff = float(np.max(np.abs(density_two[:, 0, 1] - density_multi[:, 0, 1])))
+    rho_10_diff = float(np.max(np.abs(density_two[:, 1, 0] - density_multi[:, 1, 0])))
     return {
-        "rho11_max_difference": rho11_diff,
-        "rho22_max_difference": rho22_diff,
-        "rho12_max_difference": rho12_diff,
-        "rho21_max_difference": rho21_diff,
-        "overall_max_difference": max(rho11_diff, rho22_diff, rho12_diff, rho21_diff),
+        "rho_00_max_difference": rho_00_diff,
+        "rho_11_max_difference": rho_11_diff,
+        "rho_01_max_difference": rho_01_diff,
+        "rho_10_max_difference": rho_10_diff,
+        "overall_max_difference": max(rho_00_diff, rho_11_diff, rho_01_diff, rho_10_diff),
     }
 
 

@@ -36,7 +36,7 @@ def _t1_label(t1_fs: float | None) -> str:
 
 
 def main() -> None:
-    t1_values = [None, 1000.0, 300.0, 100.0]
+    t1_values = [None, 1000.0, 300.0, 100.0, 50, 20]
     case_specs = [{"T1_fs": t1_fs, "Tphi_fs": None} for t1_fs in t1_values]
 
     for condition_name, base in make_condition_groups().items():
@@ -56,8 +56,8 @@ def main() -> None:
         for row in rows:
             print(
                 f"{row['case_name']}: gamma1_fs_inv={row['gamma1_fs_inv']:.6g}, "
-                f"final_rho22={row['final_rho22']:.6f}, "
-                f"final_abs_rho12={row['final_abs_rho12']:.6f}"
+                f"final_rho_11={row['final_rho_11']:.6f}, "
+                f"final_abs_rho_01={row['final_abs_rho_01']:.6f}"
             )
 
     print("RWA redistribution example")

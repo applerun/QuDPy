@@ -107,7 +107,7 @@ rwa = run_rwa_case(parameters)
 
 `rwa_02_dephasing.py`、`rwa_03_redistribution.py` 和 `rwa_04_dephasing_and_redistribution.py` 现在都包含三组条件：`resonant_strong`、`resonant_weak`、`detuned_weak`。其中 `field_MV_per_cm = 0.1` 用于观察弱驱动下的动力学，`detuned_weak` 用于观察非共振条件下 population transfer 和 coherence response 的变化。每个 condition group 都会保存自己的 `comparison.png`、`comparison_components.csv` 和 `results.csv`。
 
-RWA comparison 图现在包含四行：`Omega(t)`、`\rho_{22}(t)`、`|\rho_{12}(t)|` 和 `phase(\rho_{12})`。当 `abs(rho12)` 很小时，相位会通过 NaN mask 和 unwrap 处理来避免无意义的跳变。RWA examples 的 comparison 曲线使用 colormap 渐变色，而不是 matplotlib 默认颜色循环。
+RWA comparison 图现在包含四行：`Omega(t)`、`\rho_{11}(t)`、`|\rho_{01}(t)|` 和 `phase(\rho_{01})`。当 `abs(rho_01)` 很小时，相位会通过 NaN mask 和 unwrap 处理来避免无意义的跳变。RWA examples 的 comparison 曲线使用 colormap 渐变色，而不是 matplotlib 默认颜色循环。
 
 ## 运行检查
 
@@ -142,3 +142,12 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
+
+## Multi-Level Result Export
+
+- `components.csv` is dimension-aware. It saves all diagonal density-matrix elements as populations (`rho_00`, `rho_11`, ...).
+- Upper-triangular off-diagonal elements are saved as coherences with `Re_rho_ij`, `Im_rho_ij`, `abs_rho_ij`, `phase_rho_ij`, and `phase_rho_ij_unwrapped` columns, using zero-based indices.
+- `populations.csv` saves every diagonal population, and `density.npz` always contains the full density-matrix trajectory.
+- `DynamicsResult` is a dimension-aware result object and does not provide a two-level-only `components()` helper.
+- Two-level demos and RWA examples remain intentionally two-level specific where they compare `rho_11` and `rho_01`; that extraction now lives in example-level helpers.
+- Multi-level physical normalization is not implemented yet; the current multi-level path assumes solver-ready/code-unit inputs.

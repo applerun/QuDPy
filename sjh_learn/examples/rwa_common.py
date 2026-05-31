@@ -126,14 +126,57 @@ def save_case_result(
             plt.close(preview_fig)
 
 
-def rho12_phase_series(result, *, unwrap: bool = True, mask_threshold: float = 1e-8) -> np.ndarray:
-    _rho11, _rho22, rho12, _rho21 = result.components()
-    phase = np.angle(rho12)
-    if unwrap:
-        phase = np.unwrap(phase)
-    phase = np.asarray(phase, dtype=float)
-    phase[np.abs(rho12) < mask_threshold] = np.nan
-    return phase
+def extract_two_level_observables(result, *, mask_threshold: float = 1e-8) -> dict[str, np.ndarray]:
+    if result.dimension() != 2:
+        raise ValueError("RWA two-level examples require a two-dimensional DynamicsResult.")
+    rho_00 = result.matrix_element(0, 0)
+    rho_11 = result.matrix_element(1, 1)
+    rho_01 = result.matrix_element(0, 1)
+    phase_rho_01 = np.angle(rho_01).astype(float)
+    phase_rho_01_unwrapped = np.unwrap(np.angle(rho_01)).astype(float)
+    mask = np.abs(rho_01) < mask_threshold
+    phase_rho_01[mask] = np.nan
+    phase_rho_01_unwrapped[mask] = np.nan
+    return {
+        "rho_00": rho_00,
+        "rho_11": rho_11,
+        "rho_01": rho_01,
+        "abs_rho_01": np.abs(rho_01),
+        "phase_rho_01": phase_rho_01,
+        "phase_rho_01_unwrapped": phase_rho_01_unwrapped,
+    }
+
+
+def rho_01_phase_series(result, *, unwrap: bool = True, mask_threshold: float = 1e-8) -> np.ndarray:
+    observables = extract_two_level_observables(result, mask_threshold=mask_threshold)
+    phase = observables["phase_rho_01_unwrapped" if unwrap else "phase_rho_01"]
+    return np.asarray(phase, dtype=float)
+
+
+def _two_level_metrics(result) -> dict[str, float]:
+    observables = extract_two_level_observables(result)
+    rho_11 = observables["rho_11"]
+    abs_rho_01 = observables["abs_rho_01"]
+    return {
+        "max_rho_11": float(np.max(rho_11.real)),
+        "final_rho_11": float(rho_11[-1].real),
+        "max_abs_rho_01": float(np.max(abs_rho_01)),
+        "final_abs_rho_01": float(abs_rho_01[-1]),
+    }
+
+
+def _plot_two_level_row(ax, row_name: str, observables: dict[str, np.ndarray], times, label, color) -> None:
+    if row_name == "rho_11":
+        ax.plot(times, observables["rho_11"].real, label=label, color=color)
+        ax.set_ylabel(r"$\rho_{11}$")
+    elif row_name == "abs_rho_01":
+        ax.plot(times, observables["abs_rho_01"], label=label, color=color)
+        ax.set_ylabel(r"$|\rho_{01}|$")
+    elif row_name == "phase_rho_01":
+        ax.plot(times, observables["phase_rho_01_unwrapped"], label=label, color=color)
+        ax.set_ylabel(r"phase($\rho_{01}$) (rad)")
+    else:
+        raise ValueError(f"Unsupported row name: {row_name}")
 
 
 def collect_summary_metrics(
@@ -143,7 +186,7 @@ def collect_summary_metrics(
     condition_name: str | None = None,
     example_name: str | None = None,
 ) -> dict[str, Any]:
-    _rho11, rho22, rho12, _rho21 = result.components()
+    two_level_metrics = _two_level_metrics(result)
     physical = result.physical_params
     solver = result.solver_params
     drive_dict = result.drive_dict or {}
@@ -174,10 +217,7 @@ def collect_summary_metrics(
         "gamma1_fs_inv": solver.gamma1_fs_inv,
         "gamma_phi_fs_inv": solver.gamma_phi_fs_inv,
         "gamma2_fs_inv": solver.gamma2_fs_inv,
-        "max_rho22": float(np.max(rho22.real)),
-        "final_rho22": float(rho22[-1].real),
-        "max_abs_rho12": float(np.max(np.abs(rho12))),
-        "final_abs_rho12": float(abs(rho12[-1])),
+        **two_level_metrics,
     }
 
 
@@ -186,12 +226,12 @@ def plot_rwa_comparison(
     labels,
     output_path: str | Path,
     *,
-    rows: tuple[str, ...] = ("drive", "rho22", "abs_rho12", "phase_rho12"),
+    rows: tuple[str, ...] = ("drive", "rho_11", "abs_rho_01", "phase_rho_01"),
     title: str = "RWA comparison",
     include_phase: bool = True,
     colormap: str = "plasma",
 ):
-    active_rows = rows if include_phase else tuple(row for row in rows if row != "phase_rho12")
+    active_rows = rows if include_phase else tuple(row for row in rows if row != "phase_rho_01")
     fig, axes = plt.subplots(len(active_rows), 1, figsize=(7.0, 2.1 * len(active_rows)), sharex=True)
     axes_array = np.atleast_1d(axes)
     cmap = plt.get_cmap(colormap)
@@ -199,9 +239,7 @@ def plot_rwa_comparison(
 
     for result, label, color in zip(results, labels, colors):
         times, _time_label = result.plot_times_and_label()
-        _rho11, rho22, rho12, _rho21 = result.components()
-        abs_rho12 = np.abs(rho12)
-        phase_rho12 = rho12_phase_series(result, unwrap=True)
+        observables = extract_two_level_observables(result)
         for ax, row_name in zip(axes_array, active_rows):
             if row_name == "drive":
                 drive_fs_inv = result.drive_fs_inv_values()
@@ -211,17 +249,8 @@ def plot_rwa_comparison(
                 else:
                     ax.plot(times, result.drive_code_values(), label=label, color=color)
                     ax.set_ylabel("Omega(t) (code unit)")
-            elif row_name == "rho22":
-                ax.plot(times, rho22.real, label=label, color=color)
-                ax.set_ylabel(r"$\rho_{22}$")
-            elif row_name == "abs_rho12":
-                ax.plot(times, abs_rho12, label=label, color=color)
-                ax.set_ylabel(r"$|\rho_{12}|$")
-            elif row_name == "phase_rho12":
-                ax.plot(times, phase_rho12, label=label, color=color)
-                ax.set_ylabel(r"phase($\rho_{12}$) (rad)")
             else:
-                raise ValueError(f"Unsupported row name: {row_name}")
+                _plot_two_level_row(ax, row_name, observables, times, label, color)
 
     axes_array[-1].set_xlabel("Time (fs)")
     for ax in axes_array:
@@ -352,24 +381,24 @@ def plot_three_mode_field_comparison(
     for (label, lab, rotating, rwa), color in zip(field_cases, colors):
         for result, col_index in ((lab, 0), (rotating, 1), (rwa, 2)):
             times, _time_label = result.plot_times_and_label()
-            _rho11, rho22, rho12, _rho21 = result.components()
+            observables = extract_two_level_observables(result)
 
             if col_index != 1:
                 drive_values = result.field_MV_per_cm_values() if result.mode == "lab_exact" else result.drive_fs_inv_values()
                 if drive_values is not None:
                     axes[0, col_index].plot(times, drive_values, label=label, color=color)
 
-            axes[1, col_index].plot(times, rho22.real, label=label, color=color)
-            axes[2, col_index].plot(times, np.abs(rho12), label=label, color=color)
-            axes[3, col_index].plot(times, rho12_phase_series(result, unwrap=True), label=label, color=color)
+            axes[1, col_index].plot(times, observables["rho_11"].real, label=label, color=color)
+            axes[2, col_index].plot(times, observables["abs_rho_01"], label=label, color=color)
+            axes[3, col_index].plot(times, observables["phase_rho_01_unwrapped"], label=label, color=color)
 
     axes[0, 0].set_ylabel("E(t) (MV/cm)")
     axes[0, 1].set_ylabel("input")
     axes[0, 2].set_ylabel("Omega(t) (fs^-1)")
     for col_index in range(3):
-        axes[1, col_index].set_ylabel(r"$\rho_{22}$")
-        axes[2, col_index].set_ylabel(r"$|\rho_{12}|$")
-        axes[3, col_index].set_ylabel(r"phase($\rho_{12}$) (rad)")
+        axes[1, col_index].set_ylabel(r"$\rho_{11}$")
+        axes[2, col_index].set_ylabel(r"$|\rho_{01}|$")
+        axes[3, col_index].set_ylabel(r"phase($\rho_{01}$) (rad)")
         axes[3, col_index].set_xlabel("Time (fs)")
 
     for row in axes:
@@ -388,11 +417,12 @@ def plot_three_mode_field_comparison(
 __all__ = [
     "build_case_name_from_T1_Tphi",
     "collect_summary_metrics",
+    "extract_two_level_observables",
     "make_base_physical_params",
     "make_condition_groups",
     "physical_params_with_field",
     "plot_rwa_comparison",
-    "rho12_phase_series",
+    "rho_01_phase_series",
     "run_example_group",
     "run_three_mode_cases_from_physical_params",
     "run_rwa_case_from_physical_params",

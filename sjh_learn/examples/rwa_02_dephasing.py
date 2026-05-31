@@ -31,7 +31,7 @@ def _tphi_label(tphi_fs: float | None) -> str:
 
 
 def main() -> None:
-    tphi_values = [None, 1000.0, 300.0, 100.0]
+    tphi_values = [None, 1000.0, 300.0, 100.0, 50, 20]
     case_specs = [{"T1_fs": None, "Tphi_fs": tphi_fs} for tphi_fs in tphi_values]
 
     for condition_name, base in make_condition_groups().items():
@@ -52,8 +52,8 @@ def main() -> None:
         for row in rows:
             print(
                 f"{row['case_name']}: gamma_phi_fs_inv={row['gamma_phi_fs_inv']:.6g}, "
-                f"max_abs_rho12={row['max_abs_rho12']:.6f}, "
-                f"final_abs_rho12={row['final_abs_rho12']:.6f}"
+                f"max_abs_rho_01={row['max_abs_rho_01']:.6f}, "
+                f"final_abs_rho_01={row['final_abs_rho_01']:.6f}"
             )
     print("RWA pure-dephasing example")
     print(f"output root: {OUTPUT_DIR}")

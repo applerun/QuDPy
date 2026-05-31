@@ -132,37 +132,54 @@ def _summary_row(case_name: str, result: ResultLike) -> dict[str, Any]:
 
 def _trajectory_summary(result: ResultLike) -> dict[str, Any]:
     times = result.times_fs if result.times_fs is not None else result.times
+    density = result.density_array()
+    dimension = result.dimension()
+    populations = result.populations().real
+    final_populations = {f"rho_{index}{index}": float(populations[-1, index]) for index in range(dimension)}
+    max_populations = {f"rho_{index}{index}": float(np.max(populations[:, index])) for index in range(dimension)}
+    coherences: dict[str, Any] = {}
+    for i in range(dimension):
+        for j in range(i + 1, dimension):
+            values = density[:, i, j]
+            abs_values = np.abs(values)
+            phase = np.angle(values)
+            phase_unwrapped = np.unwrap(phase)
+            if abs_values[-1] < 1e-8:
+                final_phase = None
+                final_phase_unwrapped = None
+            else:
+                final_phase = float(phase[-1])
+                final_phase_unwrapped = float(phase_unwrapped[-1])
+            coherences[f"rho_{i}{j}"] = {
+                "final_abs": float(abs_values[-1]),
+                "max_abs": float(np.max(abs_values)),
+                "final_phase": final_phase,
+                "final_phase_unwrapped": final_phase_unwrapped,
+            }
     summary: dict[str, Any] = {
         "n_time_points": int(len(result.times)),
         "time_range_fs": [float(times[0]), float(times[-1])] if len(times) else [],
+        "dimension": dimension,
+        "final_populations": final_populations,
+        "max_populations": max_populations,
+        "final_coherences": coherences,
         "max_trace_error": result.max_trace_error(),
         "max_hermiticity_error": result.max_hermiticity_error(),
     }
-    if result.dimension() == 2:
-        rho11, rho22, rho12, _rho21 = result.components()
-        phase_rho12 = np.angle(rho12)
-        phase_rho12_unwrapped = np.unwrap(phase_rho12)
-        if abs(rho12[-1]) < 1e-8:
-            final_phase_rho12 = None
-            final_phase_rho12_unwrapped = None
-        else:
-            final_phase_rho12 = float(phase_rho12[-1])
-            final_phase_rho12_unwrapped = float(phase_rho12_unwrapped[-1])
-        summary.update(
-            {
-                "final_rho11": float(rho11[-1].real),
-                "final_rho22": float(rho22[-1].real),
-                "final_abs_rho12": float(abs(rho12[-1])),
-                "final_phase_rho12": final_phase_rho12,
-                "final_phase_rho12_unwrapped": final_phase_rho12_unwrapped,
-                "max_rho22": float(np.max(rho22.real)),
-                "max_abs_rho12": float(np.max(np.abs(rho12))),
-            }
-        )
-    else:
-        final_populations = result.populations()[-1]
-        summary["final_populations"] = [float(value.real) for value in final_populations]
     return summary
+
+
+def _component_export_metadata(result: ResultLike) -> dict[str, Any]:
+    dimension = result.dimension()
+    return {
+        "dimension": dimension,
+        "component_indexing": "zero_based",
+        "saved_populations": [f"rho_{index}{index}" for index in range(dimension)],
+        "saved_coherences": [f"rho_{i}{j}" for i in range(dimension) for j in range(i + 1, dimension)],
+        "saved_coherences_rule": "upper triangular off-diagonal elements only",
+        "coherence_components": ["real", "imag", "abs", "phase", "phase_unwrapped"],
+        "density_npz": "full density matrix trajectory",
+    }
 
 
 def _field_envelope(physical: Any) -> str:
@@ -234,6 +251,21 @@ def _solver_representation_metadata(result: ResultLike) -> dict[str, Any]:
             "counter_rotating_terms_retained": False,
             "rwa_approximation_applied": True,
             "independently_solved_by_mesolve": True,
+        }
+    if mode == "multilevel_lab":
+        return {
+            "mode": "multilevel_lab",
+            "description": "Direct multi-level lab-frame propagation using solver-ready units.",
+            "hamiltonian_type": "time-dependent multi-level lab-frame Hamiltonian",
+            "uses_lab_field_directly": True,
+            "uses_rwa_drive": False,
+            "uses_rotating_transform": False,
+            "carrier_retained": True,
+            "counter_rotating_terms_retained": True,
+            "rwa_approximation_applied": False,
+            "independently_solved_by_mesolve": True,
+            "unit_system": "solver_ready_code_units",
+            "physical_normalization": "not_implemented_for_multilevel_path",
         }
     return {
         "mode": mode,
@@ -375,6 +407,13 @@ def _human_metadata(
         meta["solver_code_summary"] = None
 
     meta["trajectory_summary"] = _trajectory_summary(result)
+    meta["component_export"] = _component_export_metadata(result)
+    if getattr(result, "mode", None) == "multilevel_lab":
+        meta["multilevel_units"] = {
+            "description": "The current multi-level path assumes solver-ready/code-unit inputs.",
+            "physical_normalization": "not_implemented",
+            "normalizer": "ParaNormalizer is currently a two-level physical-parameter helper.",
+        }
     meta["output_files"] = output_files or {}
     return _json_safe(meta)
 
@@ -498,10 +537,9 @@ def save_result_data(
         written["density_npz"] = npz_path
 
     if save_csv:
-        if result.dimension() == 2:
-            components_path = output / "components.csv"
-            result.components_dataframe().to_csv(components_path, index=False)
-            written["components_csv"] = components_path
+        components_path = output / "components.csv"
+        result.components_dataframe().to_csv(components_path, index=False)
+        written["components_csv"] = components_path
 
         populations_path = output / "populations.csv"
         result.populations_dataframe().to_csv(populations_path, index=False)
@@ -534,8 +572,6 @@ def save_results_components_long(results: list[ResultLike], output_path: str | P
         raise ValueError("results must not be empty.")
     frames = []
     for result in results:
-        if result.dimension() != 2:
-            raise ValueError("save_results_components_long() is only defined for two-level results.")
         frame = result.components_dataframe().copy()
         frame.insert(0, "mode", result.mode)
         frames.append(frame)

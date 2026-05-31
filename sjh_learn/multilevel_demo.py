@@ -63,7 +63,7 @@ def main() -> None:
         save_npz=True,
         save_csv=True,
         save_json=True,
-        selected_elements={"rho12": (0, 1), "rho23": (1, 2)},
+        selected_elements={"rho_01": (0, 1), "rho_12": (1, 2)},
     )
 
     print("多能级实验室系示例")

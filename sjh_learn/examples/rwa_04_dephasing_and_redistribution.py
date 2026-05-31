@@ -59,8 +59,8 @@ def main() -> None:
             print(
                 f"{row['case_name']}: gamma1_fs_inv={row['gamma1_fs_inv']:.6g}, "
                 f"gamma_phi_fs_inv={row['gamma_phi_fs_inv']:.6g}, "
-                f"final_rho22={row['final_rho22']:.6f}, "
-                f"final_abs_rho12={row['final_abs_rho12']:.6f}"
+                f"final_rho_11={row['final_rho_11']:.6f}, "
+                f"final_abs_rho_01={row['final_abs_rho_01']:.6f}"
             )
 
     print("RWA dephasing and redistribution example")

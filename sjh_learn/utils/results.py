@@ -50,6 +50,24 @@ def _time_axis_fs(times: np.ndarray, times_fs: np.ndarray | None) -> np.ndarray:
     return np.asarray(times, dtype=float)
 
 
+def _rho_label(i: int, j: int) -> str:
+    return f"rho_{i}{j}"
+
+
+def _upper_triangular_pairs(dimension: int) -> list[tuple[int, int]]:
+    return [(i, j) for i in range(dimension) for j in range(i + 1, dimension)]
+
+
+def _phase_with_mask(values: np.ndarray, *, threshold: float = 1e-8) -> tuple[np.ndarray, np.ndarray]:
+    abs_values = np.abs(values)
+    phase = np.angle(values).astype(float)
+    phase_unwrapped = np.unwrap(np.angle(values)).astype(float)
+    mask = abs_values < threshold
+    phase[mask] = np.nan
+    phase_unwrapped[mask] = np.nan
+    return phase, phase_unwrapped
+
+
 def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
     return {
         "time_scale_fs": solver.time_scale_fs,
@@ -114,16 +132,10 @@ class DynamicsResult:
         return self.density_array()[:, i, j]
 
     def matrix_elements(self, pairs: list[tuple[int, int]] | tuple[tuple[int, int], ...]) -> dict[str, np.ndarray]:
-        return {f"rho{i + 1}{j + 1}": self.matrix_element(i, j) for i, j in pairs}
+        return {_rho_label(i, j): self.matrix_element(i, j) for i, j in pairs}
 
     def selected_elements(self, elements: dict[str, tuple[int, int]]) -> dict[str, np.ndarray]:
         return {label: self.matrix_element(i, j) for label, (i, j) in elements.items()}
-
-    def components(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        if self.dimension() != 2:
-            raise ValueError("components() is only defined for two-level results.")
-        density = self.density_array()
-        return density[:, 0, 0], density[:, 1, 1], density[:, 0, 1], density[:, 1, 0]
 
     def drive_code_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         if self.drive is None:
@@ -175,25 +187,18 @@ class DynamicsResult:
 
     def summary_dict(self) -> dict[str, Any]:
         populations = self.populations()
+        final_population_map = {
+            _rho_label(index, index): float(value.real) for index, value in enumerate(populations[-1])
+        }
         summary: dict[str, Any] = {
             "mode": self.mode,
             "dimension": self.dimension(),
-            "final_populations": [float(value.real) for value in populations[-1]],
+            "final_populations": final_population_map,
             "max trace error": f"{self.max_trace_error():.3e}",
             "max Hermitian error": f"{self.max_hermiticity_error():.3e}",
             "time_range_fs": f"{_time_axis_fs(self.times, self.times_fs)[0]:.6f} -> "
             f"{_time_axis_fs(self.times, self.times_fs)[-1]:.6f}",
         }
-        if self.dimension() == 2:
-            rho11, rho22, rho12, rho21 = self.components()
-            summary.update(
-                {
-                    "rho11(final)": f"{rho11[-1].real:.6f}",
-                    "rho22(final)": f"{rho22[-1].real:.6f}",
-                    "rho12(final)": f"{rho12[-1].real:.6f} + {rho12[-1].imag:.6f}i",
-                    "rho21(final)": f"{rho21[-1].real:.6f} + {rho21[-1].imag:.6f}i",
-                }
-            )
         return summary
 
     def metadata_dict(self) -> dict[str, Any]:
@@ -215,6 +220,10 @@ class DynamicsResult:
             "time_fs_is_physical": self.times_fs is not None,
             "n_time_points": int(len(self.times)),
             "dimension": self.dimension(),
+            "component_indexing": "zero_based",
+            "saved_populations": "all diagonal elements",
+            "saved_coherences": "upper triangular off-diagonal elements only",
+            "coherence_components": ["real", "imag", "abs", "phase", "phase_unwrapped"],
             "parameters_code": self.parameters,
         }
         if self.physical_params is not None:
@@ -257,30 +266,21 @@ class DynamicsResult:
         return data
 
     def components_dataframe(self):
-        if self.dimension() != 2:
-            raise ValueError("components_dataframe() is only defined for two-level results.")
         pd = _require_pandas()
-        rho11, rho22, rho12, rho21 = self.components()
-        abs_rho12 = np.abs(rho12)
-        phase_rho12 = np.angle(rho12)
-        phase_rho12_unwrapped = np.unwrap(phase_rho12)
-        phase_mask = abs_rho12 < 1e-8
-        phase_rho12 = phase_rho12.astype(float)
-        phase_rho12_unwrapped = phase_rho12_unwrapped.astype(float)
-        phase_rho12[phase_mask] = np.nan
-        phase_rho12_unwrapped[phase_mask] = np.nan
-        data = {
-            "time_fs": _time_axis_fs(self.times, self.times_fs),
-            "rho11": rho11.real,
-            "rho22": rho22.real,
-            "Re_rho12": rho12.real,
-            "Im_rho12": rho12.imag,
-            "abs_rho12": abs_rho12,
-            "phase_rho12": phase_rho12,
-            "phase_rho12_unwrapped": phase_rho12_unwrapped,
-            "Re_rho21": rho21.real,
-            "Im_rho21": rho21.imag,
-        }
+        density = self.density_array()
+        dimension = self.dimension()
+        data: dict[str, Any] = {"time_fs": _time_axis_fs(self.times, self.times_fs)}
+        for index in range(dimension):
+            data[_rho_label(index, index)] = density[:, index, index].real
+        for i, j in _upper_triangular_pairs(dimension):
+            label = _rho_label(i, j)
+            values = density[:, i, j]
+            phase, phase_unwrapped = _phase_with_mask(values)
+            data[f"Re_{label}"] = values.real
+            data[f"Im_{label}"] = values.imag
+            data[f"abs_{label}"] = np.abs(values)
+            data[f"phase_{label}"] = phase
+            data[f"phase_{label}_unwrapped"] = phase_unwrapped
         self._add_drive_columns(data)
         return pd.DataFrame(data)
 
@@ -289,7 +289,7 @@ class DynamicsResult:
         populations = self.populations()
         data: dict[str, Any] = {"time_fs": _time_axis_fs(self.times, self.times_fs)}
         for index in range(populations.shape[1]):
-            data[f"rho{index + 1}{index + 1}"] = populations[:, index].real
+            data[_rho_label(index, index)] = populations[:, index].real
         self._add_drive_columns(data)
         return pd.DataFrame(data)
 
@@ -297,8 +297,12 @@ class DynamicsResult:
         pd = _require_pandas()
         data: dict[str, Any] = {"time_fs": _time_axis_fs(self.times, self.times_fs)}
         for label, values in self.selected_elements(elements).items():
+            phase, phase_unwrapped = _phase_with_mask(values)
             data[f"Re_{label}"] = values.real
             data[f"Im_{label}"] = values.imag
+            data[f"abs_{label}"] = np.abs(values)
+            data[f"phase_{label}"] = phase
+            data[f"phase_{label}_unwrapped"] = phase_unwrapped
         self._add_drive_columns(data)
         return pd.DataFrame(data)
 
