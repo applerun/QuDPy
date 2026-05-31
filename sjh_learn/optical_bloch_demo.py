@@ -18,10 +18,12 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sjh_learn.utils import (
+    NLevelPhysicalParams,
     ParaNormalizer,
     PhysicalParameterSweep,
-    PhysicalParams,
+    PureDephasingChannel,
     QuantumResultIO,
+    RelaxationChannel,
     default_output_path,
     make_rotating_view,
     optical_params_from_solver,
@@ -34,17 +36,17 @@ from sjh_learn.utils import (
 )
 
 
-BASE_PHYSICAL_PARAMS = PhysicalParams(
-    energy_gap_eV=1.55,
+BASE_PHYSICAL_PARAMS = NLevelPhysicalParams(
+    basis=("g", "e"),
+    energies_eV=(0.0, 1.55),
+    dipole_matrix_D=((0.0, 3.0), (3.0, 0.0)),
     laser_energy_eV=1.55,
-    dipole_D=3.0,
     field_MV_per_cm=0.3,
     t_start_fs=0.0,
     t_end_fs=1000.0,
     dt_fs=0.05,
-    T1_fs=500.0,
-    T2_fs=None,
-    Tphi_fs=300.0,
+    relaxation_channels=(RelaxationChannel(name="relaxation_1_to_0", from_level=1, to_level=0, T1_fs=500.0),),
+    pure_dephasing_channels=(PureDephasingChannel(name="pure_dephasing_level_1", level=1, Tphi_fs=300.0),),
     pulse_center_fs=None,
     pulse_sigma_fs=None,
 )
@@ -62,7 +64,15 @@ SUMMARY_PATH = OUTPUT_DIR / "parameter_summary.json"
 RESULT_IO = QuantumResultIO(str(OUTPUT_DIR / "quantum_results_single"))
 
 
-def run_one_physical_point(physical_params: PhysicalParams):
+def _t1_fs(physical: NLevelPhysicalParams):
+    return physical.relaxation_channels[0].T1_fs if physical.relaxation_channels else None
+
+
+def _tphi_fs(physical: NLevelPhysicalParams):
+    return physical.pure_dephasing_channels[0].Tphi_fs if physical.pure_dephasing_channels else None
+
+
+def run_one_physical_point(physical_params: NLevelPhysicalParams):
     solver = NORMALIZER.normalize(physical_params)
     parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=NORMALIZER)
 
@@ -91,8 +101,8 @@ def save_comparison_figure(lab, rotating, rwa, output_path: Path) -> Path:
         fig.suptitle(
             "Two-Level Optical Bloch Comparison\n"
             f"Eg={physical.energy_gap_eV:.4f} eV, EL={physical.laser_energy_eV:.4f} eV, "
-            f"Field={physical.field_MV_per_cm:.4f} MV/cm, Dipole={physical.dipole_D:.4f} D\n"
-            f"T1={physical.T1_fs}, Tphi={physical.Tphi_fs}, "
+            f"Field={physical.field_MV_per_cm:.4f} MV/cm, mu01={physical.dipole_matrix_D[0][1]:.4f} D\n"
+            f"T1={_t1_fs(physical)}, Tphi={_tphi_fs(physical)}, "
             f"Delta={solver.detuning_fs_inv:.6g} fs^-1, Rabi={solver.rabi_fs_inv:.6g} fs^-1"
         )
     else:
@@ -108,13 +118,13 @@ def main() -> None:
     print("Two-level optical Bloch demo with explicit single-mode cases")
     print(f"energy_gap_eV     : {BASE_PHYSICAL_PARAMS.energy_gap_eV}")
     print(f"laser_energy_eV   : {BASE_PHYSICAL_PARAMS.laser_energy_eV}")
-    print(f"dipole_D          : {BASE_PHYSICAL_PARAMS.dipole_D}")
+    print(f"dipole_matrix_D   : {BASE_PHYSICAL_PARAMS.dipole_matrix_D}")
     print(f"field_MV_per_cm   : {list(PHYSICAL_SWEEP.field_MV_per_cm_values)}")
     print(f"laser scan eV     : {list(PHYSICAL_SWEEP.laser_energy_eV_values)}")
     print(f"time range fs     : {BASE_PHYSICAL_PARAMS.t_start_fs} -> {BASE_PHYSICAL_PARAMS.t_end_fs}")
     print(f"dt_fs             : {BASE_PHYSICAL_PARAMS.dt_fs}")
-    print(f"T1_fs             : {BASE_PHYSICAL_PARAMS.T1_fs}")
-    print(f"Tphi_fs           : {BASE_PHYSICAL_PARAMS.Tphi_fs}")
+    print(f"T1_fs             : {_t1_fs(BASE_PHYSICAL_PARAMS)}")
+    print(f"Tphi_fs           : {_tphi_fs(BASE_PHYSICAL_PARAMS)}")
 
     field_values = PHYSICAL_SWEEP.field_MV_per_cm_values or (PHYSICAL_SWEEP.base_params.field_MV_per_cm,)
     laser_values = PHYSICAL_SWEEP.laser_energy_eV_values or (PHYSICAL_SWEEP.base_params.laser_energy_eV,)

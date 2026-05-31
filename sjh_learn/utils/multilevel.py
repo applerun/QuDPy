@@ -128,13 +128,8 @@ def build_multilevel_c_ops(parameters: MultiLevelParameters) -> list[Qobj]:
 
 def optical_bloch_to_multilevel_parameters(parameters: OpticalBlochParameters) -> MultiLevelParameters:
     """把 two-level OpticalBlochParameters 映射成等价的 N=2 multi-level 参数。"""
-    epsilon_2 = parameters.epsilon_1 + compute_energy_gap(
-        detuning=parameters.detuning,
-        omega_drive=parameters.omega_drive,
-        hbar=parameters.hbar,
-    )
     collapse_channels: list[CollapseChannel] = []
-    if parameters.gamma_phi > 0:
+    if False and parameters.gamma_phi > 0:
         # 两个 projector 去相干通道共同作用时，
         # rho_12 的额外衰减是 (gamma_0 + gamma_1) / 2。
         # 这里对两个能级各放一个相同的 gamma_phi，可与 two-level sigma_z 约定匹配。
@@ -154,7 +149,7 @@ def optical_bloch_to_multilevel_parameters(parameters: OpticalBlochParameters) -
                 ),
             ]
         )
-    if parameters.gamma1 > 0:
+    if False and parameters.gamma1 > 0:
         collapse_channels.append(
             CollapseChannel(
                 name="relaxation_1_to_0",
@@ -164,18 +159,34 @@ def optical_bloch_to_multilevel_parameters(parameters: OpticalBlochParameters) -
                 rate=parameters.gamma1,
             )
         )
+    for channel in parameters.relaxation_channels:
+        collapse_channels.append(
+            CollapseChannel(
+                name=channel.get("name", "relaxation"),
+                kind="relaxation",
+                from_level=int(channel["from_level"]),
+                to_level=int(channel["to_level"]),
+                rate=float(channel.get("rate_code", channel.get("rate", 0.0))),
+            )
+        )
+    for channel in parameters.pure_dephasing_channels:
+        collapse_channels.append(
+            CollapseChannel(
+                name=channel.get("name", "pure_dephasing"),
+                kind="pure_dephasing",
+                dephase_level=int(channel["level"]),
+                rate=float(channel.get("rate_code", channel.get("rate", 0.0))),
+            )
+        )
     return MultiLevelParameters(
-        energies=(parameters.epsilon_1, epsilon_2),
-        dipole_matrix=[
-            [0.0, parameters.dipole],
-            [parameters.dipole, 0.0],
-        ],
+        energies=tuple(float(value) for value in parameters.energies),
+        dipole_matrix=parameters.dipole_matrix,
         t_start=parameters.t_start,
         t_end=parameters.t_final if parameters.t_end is None else parameters.t_end,
         dt=parameters.dt,
         fields=parameter_fields(parameters),
         hbar=parameters.hbar,
-        level_labels=("1", "2"),
+        level_labels=parameters.basis,
         collapse_channels=tuple(collapse_channels),
         tlist=None if parameters.tlist is None else np.asarray(parameters.tlist, dtype=float),
         times_fs=None if parameters.times_fs is None else np.asarray(parameters.times_fs, dtype=float),
@@ -221,6 +232,7 @@ def simulate_multilevel_lab_frame(
         c_ops=build_multilevel_c_ops(parameters),
         e_ops=[],
         args={"fields": parameters.fields},
+        options={"max_step": float(parameters.dt)},
     )
     return times, list(result.states)
 

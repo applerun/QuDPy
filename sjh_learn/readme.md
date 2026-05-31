@@ -23,7 +23,7 @@
 - `utils/fields/solver_inputs.py`: solver-internal code-unit callables such as `CodeCarrierField`, `CodeConstantDrive`, and `CodeGaussianDrive`.
 - `utils/fields/__init__.py`: public re-exports. Backward-compatible names such as `CarrierField` and `ConstantDrive` now point to physical user-facing classes; solver internals import `Code*` classes explicitly.
 
-User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Ordinary examples should set `PhysicalParams` or physical field/drive objects; `amplitude_code`, `time_unit="code"`, and `domain="solver_code"` belong only to `ParaNormalizer`, solver/model internals, `debug_meta.json`, or `solver_code_summary`.
+User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Ordinary examples should set `NLevelPhysicalParams` or physical field/drive objects; `amplitude_code`, `time_unit="code"`, and `domain="solver_code"` belong only to `ParaNormalizer`, solver/model internals, `debug_meta.json`, or `solver_code_summary`.
 
 The lab-frame field and RWA drive are intentionally different objects:
 
@@ -146,6 +146,14 @@ conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strengt
 - `rwa_03_redistribution.py`: T1 relaxation / redistribution damps excited-state population.
 - `rwa_04_dephasing_and_redistribution.py`: combined dephasing and redistribution.
 
+CW-input examples live under `examples/cw_input/`. Gaussian femtosecond-pulse examples live under `examples/gau_pulse/`:
+
+- `pulse_01_T1_Tphi_dependence.py`: fixed Gaussian pulse, then scan Tphi, T1, and the four dissipation scenarios.
+- `pulse_02_width_dependence.py`: scan Gaussian pulse width under free, dephasing, and redistribution scenarios.
+- `pulse_03_field_strength_dependence.py`: scan field strength under free, dephasing, and redistribution scenarios.
+
+The Gaussian pulse examples remain RWA-only. They use `pulse_center_fs` and `pulse_sigma_fs` in `NLevelPhysicalParams`; the RWA Hamiltonian receives the slow Gaussian coupling `g(t) = mu E0 exp[-(t - t0)^2 / (2 sigma^2)] / hbar`. The solver constrains `mesolve` with `max_step = dt` so narrow time-dependent pulses are not skipped by adaptive stepping.
+
 Current `redistribution` is intentionally simplified to excited-to-ground T1 relaxation in the RWA examples. Bidirectional redistribution and thermal redistribution are future extensions, and upward transitions are not implemented in this round. All RWA examples run only `run_rwa_case`, each simulation case is one `DynamicsResult`, and the input drive is saved in metadata, preview figures, and `comparison_components.csv`.
 
 `field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
@@ -154,7 +162,12 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 
 ## Unit Conventions
 
-- `PhysicalParams` uses physical units such as `time_fs`, `field_MV_per_cm`, `rabi_fs_inv`, and `gamma_fs_inv`.
+- 现在用户侧标准物理系统对象是 `NLevelPhysicalParams`。two-level system 不再是核心层的特殊标量模型，而是 `N=2` 的普通 N-level system：例如 `basis=("g", "e")`、`energies_eV=(0.0, energy_gap_eV)`、`dipole_matrix_D=((0, mu_ge), (mu_eg, 0))`。
+- `dipole_matrix_D` 是沿选定 optical polarization 投影后的偶极矩矩阵，单位是 Debye。光场幅度仍用 `field_MV_per_cm`，归一化时会由 `ParaNormalizer` 转换为 coupling matrix。
+- population relaxation 由 `relaxation_channels` 定义，每个通道表示 `C_{to <- from} = sqrt(rate) |to><from|`。通道可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
+- pure dephasing 由 `pure_dephasing_channels` 定义，每个通道表示 `C_level^phi = sqrt(rate) |level><level|`。通道可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。
+- 标量 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 不再是核心物理模型输入；如果某个 N=2 example 需要这些概念，会在 example-local helper 中把它们翻译成 `dipole_matrix_D` 和 channel list。
+- `NLevelPhysicalParams` uses physical units such as `energies_eV`, `dipole_matrix_D`, `field_MV_per_cm`, `time_fs`, and channel rates in `fs^-1`.
 - `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, drive, and decay rates.
 - Solver and model code are allowed to use code units internally.
 - User-facing field/drive classes use physical units only: `E0_MV_per_cm`, `laser_energy_eV` or `omega_L_fs_inv`, `phase_rad`, `pulse_center_fs`, `pulse_sigma_fs`, and RWA `amplitude_fs_inv`.
@@ -169,4 +182,4 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - `populations.csv` saves every diagonal population, and `density.npz` always contains the full density-matrix trajectory.
 - `DynamicsResult` is a dimension-aware result object and does not provide a two-level-only `components()` helper.
 - Two-level demos and RWA examples remain intentionally two-level specific where they compare `rho_11` and `rho_01`; that extraction now lives in example-level helpers.
-- Multi-level physical normalization is not implemented yet; the current multi-level path assumes solver-ready/code-unit inputs.
+- N-level physical normalization is implemented for `NLevelPhysicalParams`; the older `MultiLevelParameters` demo path still assumes solver-ready/code-unit inputs.

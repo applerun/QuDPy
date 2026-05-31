@@ -24,7 +24,7 @@ class ConstantRwaDrivePhysical:
 
     amplitude_fs_inv: float
     name: str = "physical_constant_rwa_drive"
-    source: str = "derived from dipole_D and field_MV_per_cm"
+    source: str = "derived from dipole_matrix_D and field_MV_per_cm"
     envelope: str = "constant"
 
     def __call__(self, t_fs):
@@ -48,7 +48,7 @@ class ConstantRwaDrivePhysical:
         return cls(
             name=data.get("name", "physical_constant_rwa_drive"),
             amplitude_fs_inv=float(data["amplitude_fs_inv"]),
-            source=data.get("source", "derived from dipole_D and field_MV_per_cm"),
+            source=data.get("source", "derived from dipole_matrix_D and field_MV_per_cm"),
         )
 
     def to_expr(self) -> str:
@@ -66,7 +66,7 @@ class GaussianRwaDrivePhysical:
     pulse_center_fs: float
     pulse_sigma_fs: float
     name: str = "physical_gaussian_rwa_drive"
-    source: str = "derived from dipole_D and field_MV_per_cm"
+    source: str = "derived from dipole_matrix_D and field_MV_per_cm"
     envelope: str = "gaussian"
 
     def __call__(self, t_fs):
@@ -95,7 +95,7 @@ class GaussianRwaDrivePhysical:
             amplitude_fs_inv=float(data["amplitude_fs_inv"]),
             pulse_center_fs=float(data["pulse_center_fs"]),
             pulse_sigma_fs=float(data["pulse_sigma_fs"]),
-            source=data.get("source", "derived from dipole_D and field_MV_per_cm"),
+            source=data.get("source", "derived from dipole_matrix_D and field_MV_per_cm"),
         )
 
     def to_expr(self) -> str:
@@ -110,11 +110,11 @@ class GaussianRwaDrivePhysical:
 
 def make_rwa_drive_from_physical_field(
     field: CarrierFieldPhysical | GaussianCarrierFieldPhysical,
-    dipole_D: float,
+    projected_dipole_D: float,
 ):
     """Build the physical RWA slow coupling from a physical lab-frame field."""
 
-    amplitude_fs_inv = ParaNormalizer.rabi_fs_inv_from_mu_and_field(dipole_D, field.E0_MV_per_cm)
+    amplitude_fs_inv = ParaNormalizer.rabi_fs_inv_from_mu_and_field(projected_dipole_D, field.E0_MV_per_cm)
     if isinstance(field, GaussianCarrierFieldPhysical):
         return GaussianRwaDrivePhysical(
             name="physical_gaussian_rwa_drive",

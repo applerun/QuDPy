@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sjh_learn.examples.rwa_common import (
+from sjh_learn.examples.cw_input.rwa_common import (
     build_case_name_from_T1_Tphi,
     collect_summary_metrics,
     make_base_physical_params,
@@ -43,8 +43,8 @@ def main() -> None:
         case_name = build_case_name_from_T1_Tphi(
             prefix="rwa_field_strength",
             field_MV_per_cm=physical.field_MV_per_cm,
-            T1_fs=physical.T1_fs,
-            Tphi_fs=physical.Tphi_fs,
+            T1_fs=None,
+            Tphi_fs=None,
         )
         results.append(result)
         labels.append(f"{field:g} MV/cm")

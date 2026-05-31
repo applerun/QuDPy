@@ -18,11 +18,17 @@ def main() -> None:
         t_final=20.0,
         dt=0.01,
         hbar=1.0,
-        epsilon_1=0.0,
-        detuning=0.25,
-        dipole=0.08,
+        energies=(0.0, 1.25),
+        dipole_matrix=((0.0, 0.08), (0.08, 0.0)),
         field_amplitude=0.7,
         omega_drive=1.0,
+        relaxation_channels=(
+            {"name": "relaxation_1_to_0", "from_level": 1, "to_level": 0, "rate_code": 0.03},
+        ),
+        pure_dephasing_channels=(
+            {"name": "pure_dephasing_level_0", "level": 0, "rate_code": 0.02},
+            {"name": "pure_dephasing_level_1", "level": 1, "rate_code": 0.02},
+        ),
         gamma1=0.03,
         gamma_phi=0.02,
     )

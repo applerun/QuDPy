@@ -26,6 +26,8 @@ def _json_safe(value: Any) -> Any:
     if is_dataclass(value):
         return _json_safe(asdict(value))
     if isinstance(value, np.ndarray):
+        if np.iscomplexobj(value):
+            return [[{"real": float(item.real), "imag": float(item.imag)} for item in row] for row in value]
         return value.tolist()
     if isinstance(value, np.generic):
         return value.item()
@@ -332,7 +334,7 @@ def _input_drive_metadata(result: ResultLike, physical: Any, solver: Any, parame
         "expression": "g(t) = mu E0 f(t) / hbar",
         "amplitude_fs_inv": None if solver is None else solver.rabi_fs_inv,
         "amplitude_code": None if solver is None else solver.rabi,
-        "source": "derived from dipole_D and field_MV_per_cm",
+        "source": "derived from dipole_matrix_D and field_MV_per_cm",
         "domain": "RWA",
         "drive_unit_physical": "fs^-1",
         "drive_unit_code": "code",
@@ -366,15 +368,16 @@ def _human_metadata(
     if physical is not None:
         detuning_eV = physical.energy_gap_eV - physical.laser_energy_eV
         meta["inputs_physical"] = {
+            "basis": physical.basis,
+            "energies_eV": physical.energies_eV,
             "energy_gap_eV": physical.energy_gap_eV,
             "laser_energy_eV": physical.laser_energy_eV,
             "detuning_eV": detuning_eV,
             "wavelength_nm": HC_EV_NM / physical.laser_energy_eV if physical.laser_energy_eV else None,
-            "dipole_D": physical.dipole_D,
+            "dipole_matrix_D": physical.dipole_matrix_D,
             "field_MV_per_cm": physical.field_MV_per_cm,
-            "T1_fs": physical.T1_fs,
-            "Tphi_fs": physical.Tphi_fs,
-            "T2_fs": physical.T2_fs,
+            "relaxation_channels": physical.relaxation_channels,
+            "pure_dephasing_channels": physical.pure_dephasing_channels,
             "t_start_fs": physical.t_start_fs,
             "t_end_fs": physical.t_end_fs,
             "dt_fs": physical.dt_fs,
@@ -401,12 +404,16 @@ def _human_metadata(
             "gamma2_fs_inv": solver.gamma2_fs_inv,
             "T2_effective_fs": (1.0 / solver.gamma2_fs_inv) if solver.gamma2_fs_inv > 0 else None,
             "rabi_period_fs": (2.0 * np.pi / abs(solver.rabi_fs_inv)) if solver.rabi_fs_inv != 0 else None,
+            "energies_fs_inv": solver.energies_fs_inv,
+            "coupling_matrix_fs_inv": solver.coupling_matrix_fs_inv,
         }
         meta["solver_code_summary"] = {
             "time_scale_fs": solver.time_scale_fs,
             "detuning_code": solver.detuning,
             "field_amplitude_code": getattr(parameters, "field_amplitude", None),
             "omega_drive_code": getattr(parameters, "omega_drive", None),
+            "energies_code": solver.energies_code,
+            "coupling_matrix_code": solver.coupling_matrix_code,
             "gamma1_code": solver.gamma1,
             "gamma_phi_code": solver.gamma_phi,
             "gamma2_code": solver.gamma2,

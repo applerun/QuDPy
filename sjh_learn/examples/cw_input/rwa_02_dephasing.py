@@ -17,7 +17,7 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sjh_learn.examples.rwa_common import (
+from sjh_learn.examples.cw_input.rwa_common import (
     make_condition_groups,
     run_example_group,
 )
@@ -38,7 +38,7 @@ def main() -> None:
         group_dir = OUTPUT_DIR / condition_name
         rows = run_example_group(
             output_dir=group_dir,
-            base_physical=replace(base, T1_fs=None, T2_fs=None, Tphi_fs=None),
+            base_physical=base,
             case_specs=case_specs,
             case_name_prefix="rwa_dephasing",
             comparison_title=f"RWA pure-dephasing scan: {condition_name}",

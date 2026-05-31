@@ -213,6 +213,14 @@ rwa = run_rwa_case(parameters)
 - `rwa_03_redistribution.py`: T1 relaxation / redistribution damps excited-state population.
 - `rwa_04_dephasing_and_redistribution.py`: combined dephasing and redistribution.
 
+CW-input examples are grouped under `examples/cw_input/`. Gaussian femtosecond-pulse examples are grouped under `examples/gau_pulse/`:
+
+- `pulse_01_T1_Tphi_dependence.py`: fixed Gaussian pulse, then scan Tphi, T1, and the four dissipation scenarios.
+- `pulse_02_width_dependence.py`: scan Gaussian pulse width under free, dephasing, and redistribution scenarios.
+- `pulse_03_field_strength_dependence.py`: scan field strength under free, dephasing, and redistribution scenarios.
+
+The Gaussian pulse examples are still RWA-only. They use physical `pulse_center_fs` and `pulse_sigma_fs`, and the RWA Hamiltonian receives the slow Gaussian coupling `g(t) = mu E0 exp[-(t - t0)^2 / (2 sigma^2)] / hbar`. The solver sets `mesolve` `max_step = dt` so narrow time-dependent pulses are resolved by the integrator.
+
 Current `redistribution` is intentionally simplified to excited-to-ground T1 relaxation in the RWA examples. Bidirectional redistribution and thermal redistribution are future extensions, and upward transitions are not implemented in this round. All RWA examples run only `run_rwa_case`, each simulation case is one `DynamicsResult`, and the input drive is saved in metadata, preview figures, and `comparison_components.csv`.
 
 `field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
@@ -225,7 +233,11 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 
 ## Unit Conventions
 
-- `PhysicalParams` uses physical units such as `time_fs`, `field_MV_per_cm`, `rabi_fs_inv`, and `gamma_fs_inv`.
+- `NLevelPhysicalParams` 是当前用户侧标准物理系统对象。two-level system 只是 `N=2` 的普通 N-level system，不再由核心层的 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 标量字段表示。
+- `basis` 可选保存能级名称；`energies_eV` 保存长度为 N 的能级列表；`dipole_matrix_D` 保存沿选定 optical polarization 投影后的 N x N 偶极矩矩阵，单位为 Debye。
+- `relaxation_channels` 定义 population relaxation：`C_{to <- from} = sqrt(rate) |to><from|`，每个 channel 可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
+- `pure_dephasing_channels` 定义 level projector pure dephasing：`C_level^phi = sqrt(rate) |level><level|`，每个 channel 可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。
+- 普通 N=2 示例如果需要“`dipole_D` / `T1_fs` / `Tphi_fs`”这样的教学参数，会在 example-local helper 中翻译成 `dipole_matrix_D` 和 channel list；这些不再是 core model API。
 - `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, drive, and decay rates.
 - Solver and model code are allowed to use code units internally.
 - User-facing field/drive classes use physical units only: `E0_MV_per_cm`, `laser_energy_eV` or `omega_L_fs_inv`, `phase_rad`, `pulse_center_fs`, `pulse_sigma_fs`, and RWA `amplitude_fs_inv`.
@@ -240,4 +252,4 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 - `populations.csv` contains all diagonal elements; `density.npz` contains the complete density-matrix trajectory.
 - `DynamicsResult` no longer exposes a two-level-only `components()` helper; result access should use `populations()`, `matrix_element()`, `matrix_elements()`, or dataframe exporters.
 - The two-level RWA examples still use two-level-specific summaries and plots by design; their `rho_11` / `rho_01` extraction is kept in example-level helpers, not in the generic result export.
-- Multi-level physical normalization has not been generalized from the two-level `ParaNormalizer`; current `MultiLevelParameters` are treated as solver-ready/code-unit inputs.
+- `NLevelPhysicalParams` 已支持 N-level physical normalization；旧 `MultiLevelParameters` demo path 仍是 solver-ready/code-unit 输入路径。

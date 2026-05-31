@@ -9,8 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from sjh_learn.utils import (
+    NLevelPhysicalParams,
     ParaNormalizer,
-    PhysicalParams,
+    PureDephasingChannel,
+    RelaxationChannel,
     build_preview_figure,
     make_rotating_view,
     optical_params_from_solver,
@@ -22,34 +24,88 @@ from sjh_learn.utils import (
 )
 
 
-def make_base_physical_params() -> PhysicalParams:
-    return PhysicalParams(
-        energy_gap_eV=1.55,
-        laser_energy_eV=1.55,
-        dipole_D=3.0,
-        field_MV_per_cm=0.1,
-        t_start_fs=0.0,
-        t_end_fs=1200.0,
-        dt_fs=0.5,
-        T1_fs=None,
-        T2_fs=None,
-        Tphi_fs=None,
-        pulse_center_fs=None,
-        pulse_sigma_fs=None,
+def make_n2_physical_params(
+    *,
+    energy_gap_eV: float = 1.55,
+    laser_energy_eV: float = 1.55,
+    dipole_D: float = 3.0,
+    field_MV_per_cm: float = 0.1,
+    t_start_fs: float = 0.0,
+    t_end_fs: float = 1200.0,
+    dt_fs: float = 0.5,
+    T1_fs: float | None = None,
+    Tphi_fs: float | None = None,
+    pulse_center_fs: float | None = None,
+    pulse_sigma_fs: float | None = None,
+) -> NLevelPhysicalParams:
+    relaxation = ()
+    if T1_fs is not None:
+        relaxation = (RelaxationChannel(name="relaxation_1_to_0", from_level=1, to_level=0, T1_fs=T1_fs),)
+    dephasing = ()
+    if Tphi_fs is not None:
+        dephasing = (
+            PureDephasingChannel(name="pure_dephasing_level_0", level=0, Tphi_fs=Tphi_fs),
+            PureDephasingChannel(name="pure_dephasing_level_1", level=1, Tphi_fs=Tphi_fs),
+        )
+    return NLevelPhysicalParams(
+        basis=("g", "e"),
+        energies_eV=(0.0, energy_gap_eV),
+        dipole_matrix_D=((0.0, dipole_D), (dipole_D, 0.0)),
+        laser_energy_eV=laser_energy_eV,
+        field_MV_per_cm=field_MV_per_cm,
+        t_start_fs=t_start_fs,
+        t_end_fs=t_end_fs,
+        dt_fs=dt_fs,
+        relaxation_channels=relaxation,
+        pure_dephasing_channels=dephasing,
+        pulse_center_fs=pulse_center_fs,
+        pulse_sigma_fs=pulse_sigma_fs,
     )
 
 
-def make_condition_groups() -> dict[str, PhysicalParams]:
+def with_dissipation(
+    physical: NLevelPhysicalParams,
+    *,
+    T1_fs: float | None = None,
+    Tphi_fs: float | None = None,
+) -> NLevelPhysicalParams:
+    return replace(
+        physical,
+        relaxation_channels=()
+        if T1_fs is None
+        else (RelaxationChannel(name="relaxation_1_to_0", from_level=1, to_level=0, T1_fs=T1_fs),),
+        pure_dephasing_channels=()
+        if Tphi_fs is None
+        else (
+            PureDephasingChannel(name="pure_dephasing_level_0", level=0, Tphi_fs=Tphi_fs),
+            PureDephasingChannel(name="pure_dephasing_level_1", level=1, Tphi_fs=Tphi_fs),
+        ),
+    )
+
+
+def T1_fs_of(physical: NLevelPhysicalParams) -> float | None:
+    return physical.relaxation_channels[0].T1_fs if physical.relaxation_channels else None
+
+
+def Tphi_fs_of(physical: NLevelPhysicalParams) -> float | None:
+    return physical.pure_dephasing_channels[0].Tphi_fs if physical.pure_dephasing_channels else None
+
+
+def make_base_physical_params() -> NLevelPhysicalParams:
+    return make_n2_physical_params()
+
+
+def make_condition_groups() -> dict[str, NLevelPhysicalParams]:
     base = make_base_physical_params()
     return {
         "resonant_strong": replace(base, field_MV_per_cm=0.5, laser_energy_eV=base.energy_gap_eV),
         "resonant_weak": replace(base, field_MV_per_cm=0.1, laser_energy_eV=base.energy_gap_eV),
-        "detuned_weak": replace(base, field_MV_per_cm=0.1, energy_gap_eV=1.55, laser_energy_eV=1.57),
+        "detuned_weak": replace(base, field_MV_per_cm=0.1, energies_eV=(0.0, 1.55), laser_energy_eV=1.57),
     }
 
 
 def run_rwa_case_from_physical_params(
-    physical_params: PhysicalParams,
+    physical_params: NLevelPhysicalParams,
     *,
     normalizer: ParaNormalizer | None = None,
 ):
@@ -63,7 +119,7 @@ def run_rwa_case_from_physical_params(
 
 
 def run_three_mode_cases_from_physical_params(
-    physical_params: PhysicalParams,
+    physical_params: NLevelPhysicalParams,
     *,
     normalizer: ParaNormalizer | None = None,
 ):
@@ -205,8 +261,8 @@ def collect_summary_metrics(
         "case_name": case_name or build_case_name_from_T1_Tphi(
             prefix="rwa",
             field_MV_per_cm=physical.field_MV_per_cm,
-            T1_fs=physical.T1_fs,
-            Tphi_fs=physical.Tphi_fs,
+            T1_fs=T1_fs_of(physical),
+            Tphi_fs=Tphi_fs_of(physical),
         ),
         "mode": result.mode,
         "field_MV_per_cm": physical.field_MV_per_cm,
@@ -220,8 +276,8 @@ def collect_summary_metrics(
         "drive_class": drive_class,
         "drive_expr": drive_expr,
         "envelope": envelope,
-        "T1_fs": physical.T1_fs,
-        "Tphi_fs": physical.Tphi_fs,
+        "T1_fs": T1_fs_of(physical),
+        "Tphi_fs": Tphi_fs_of(physical),
         "gamma1_fs_inv": solver.gamma1_fs_inv,
         "gamma_phi_fs_inv": solver.gamma_phi_fs_inv,
         "gamma2_fs_inv": solver.gamma2_fs_inv,
@@ -283,7 +339,7 @@ def save_results_csv(rows: list[dict], output_path: str | Path) -> Path:
     return path
 
 
-def physical_params_with_field(base: PhysicalParams, field_MV_per_cm: float) -> PhysicalParams:
+def physical_params_with_field(base: NLevelPhysicalParams, field_MV_per_cm: float) -> NLevelPhysicalParams:
     return replace(base, field_MV_per_cm=field_MV_per_cm)
 
 
@@ -313,7 +369,7 @@ def save_group_outputs(
 def run_example_group(
     *,
     output_dir: str | Path,
-    base_physical: PhysicalParams,
+    base_physical: NLevelPhysicalParams,
     case_specs: list[dict[str, Any]],
     case_name_prefix: str,
     comparison_title: str,
@@ -328,13 +384,13 @@ def run_example_group(
     labels = []
     rows = []
     for spec in case_specs:
-        physical = replace(base_physical, T1_fs=spec.get("T1_fs"), T2_fs=None, Tphi_fs=spec.get("Tphi_fs"))
+        physical = with_dissipation(base_physical, T1_fs=spec.get("T1_fs"), Tphi_fs=spec.get("Tphi_fs"))
         result = run_rwa_case_from_physical_params(physical)
         case_name = build_case_name_from_T1_Tphi(
             prefix=case_name_prefix,
             field_MV_per_cm=physical.field_MV_per_cm,
-            T1_fs=physical.T1_fs,
-            Tphi_fs=physical.Tphi_fs,
+            T1_fs=T1_fs_of(physical),
+            Tphi_fs=Tphi_fs_of(physical),
         )
         results.append(result)
         labels.append(label_builder(spec))

@@ -5,3 +5,4 @@ __pycache__/
 
 sjh_learn/optical_bloch_plots/
 sjh_learn/examples/outputs/
+sjh_learn/examples/**/outputs/

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from qutip import Qobj
 
-from .normalization import PhysicalParams, SolverParams
+from .normalization import NLevelPhysicalParams, SolverParams
 
 
 def _require_pandas():
@@ -71,6 +71,10 @@ def _phase_with_mask(values: np.ndarray, *, threshold: float = 1e-8) -> tuple[np
 def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
     return {
         "time_scale_fs": solver.time_scale_fs,
+        "energies_fs_inv": solver.energies_fs_inv,
+        "coupling_matrix_fs_inv": solver.coupling_matrix_fs_inv,
+        "relaxation_channels_fs_inv": solver.relaxation_channels_fs_inv,
+        "pure_dephasing_channels_fs_inv": solver.pure_dephasing_channels_fs_inv,
         "omega_eg_fs_inv": solver.omega_eg_fs_inv,
         "omega_L_fs_inv": solver.omega_L_fs_inv,
         "detuning_fs_inv": solver.detuning_fs_inv,
@@ -83,6 +87,10 @@ def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
 
 def _solver_params_code_dict(solver: SolverParams) -> dict[str, Any]:
     return {
+        "energies_code": solver.energies_code,
+        "coupling_matrix_code": solver.coupling_matrix_code,
+        "relaxation_channels_code": solver.relaxation_channels_code,
+        "pure_dephasing_channels_code": solver.pure_dephasing_channels_code,
         "omega_eg_code": solver.omega_eg,
         "omega_L_code": solver.omega_L,
         "detuning_code": solver.detuning,
@@ -108,7 +116,7 @@ class DynamicsResult:
     times_fs: np.ndarray | None
     states: list[Qobj]
     parameters: Any
-    physical_params: PhysicalParams | None = None
+    physical_params: NLevelPhysicalParams | None = None
     solver_params: SolverParams | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     source_mode: str | None = None
@@ -141,7 +149,10 @@ class DynamicsResult:
         if self.drive is None:
             return None
         sample_times = self.times if times is None else np.asarray(times, dtype=float)
-        return np.asarray(self.drive(sample_times), dtype=float)
+        values = np.asarray(self.drive(sample_times), dtype=float)
+        if self.mode == "rwa" and self.solver_params is not None:
+            return values * float(self.solver_params.rabi)
+        return values
 
     def drive_fs_inv_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         drive_code = self.drive_code_values(times)

@@ -46,7 +46,13 @@ from .multilevel import (
     simulate_multilevel_lab_frame,
     two_level_multilevel_equivalence_check,
 )
-from .normalization import ParaNormalizer, PhysicalParams, SolverParams
+from .normalization import (
+    NLevelPhysicalParams,
+    ParaNormalizer,
+    PureDephasingChannel,
+    RelaxationChannel,
+    SolverParams,
+)
 from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
 from .plotting import (
     build_preview_figure,
@@ -73,7 +79,9 @@ from .solvers import (
 __all__ = [
     "DynamicsResult",
     "OpticalBlochParameters",
-    "PhysicalParams",
+    "NLevelPhysicalParams",
+    "RelaxationChannel",
+    "PureDephasingChannel",
     "SolverParams",
     "ParaNormalizer",
     "PhysicalParameterSweep",

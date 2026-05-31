@@ -1,4 +1,4 @@
-"""基于 QuTiP mesolve 的求解流程。"""
+"""基于 QuTiP mesolve 的单轨迹求解流程。"""
 
 from __future__ import annotations
 
@@ -14,14 +14,8 @@ from .fields.solver_inputs import (
     CodeGaussianCarrierField,
     CodeGaussianDrive,
 )
-from .model import (
-    build_c_ops,
-    build_lab_hamiltonian,
-    compute_energy_gap,
-    initial_density_matrix,
-    parameter_fields,
-)
-from .normalization import ParaNormalizer, PhysicalParams, SolverParams
+from .model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_fields
+from .normalization import NLevelPhysicalParams, ParaNormalizer, SolverParams
 from .parameters import OpticalBlochParameters, ParameterSweep, PhysicalParameterSweep
 from .results import DynamicsResult
 
@@ -33,6 +27,14 @@ def _default_tlist(parameters: OpticalBlochParameters) -> np.ndarray:
     return np.arange(parameters.t_start, t_end + 0.5 * parameters.dt, parameters.dt)
 
 
+def _mesolve_options(parameters: OpticalBlochParameters) -> dict[str, float]:
+    return {"max_step": float(parameters.dt)}
+
+
+def _rho0(parameters: OpticalBlochParameters, rho0: Qobj | None) -> Qobj:
+    return initial_density_matrix(len(parameters.energies)) if rho0 is None else rho0
+
+
 def simulate_lab_frame(
     parameters: OpticalBlochParameters,
     rho0: Qobj | None = None,
@@ -42,27 +44,40 @@ def simulate_lab_frame(
     fields = parameter_fields(parameters)
     if field_amplitude_override is not None:
         fields = (
-            (CodeCarrierField(
+            CodeCarrierField(
                 amplitude_code=field_amplitude_override,
                 omega_code=parameters.omega_drive,
-                phase=0.0,
-            ) if parameters.pulse_sigma is None else CodeGaussianCarrierField(
+            )
+            if parameters.pulse_sigma is None
+            else CodeGaussianCarrierField(
                 amplitude_code=field_amplitude_override,
                 omega_code=parameters.omega_drive,
-                phase=0.0,
                 center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
                 sigma_code=parameters.pulse_sigma,
-            )),
+            ),
         )
     result = mesolve(
         H=build_lab_hamiltonian(parameters),
-        rho0=initial_density_matrix() if rho0 is None else rho0,
+        rho0=_rho0(parameters, rho0),
         tlist=times,
         c_ops=build_c_ops(parameters),
         e_ops=[],
         args={"fields": fields},
+        options=_mesolve_options(parameters),
     )
     return times, list(result.states)
+
+
+def default_rwa_drive(parameters: OpticalBlochParameters) -> CodeConstantDrive | CodeGaussianDrive:
+    # RWA Hamiltonian 已经携带 coupling_matrix；drive 只表示慢包络 f(t)。
+    if parameters.pulse_sigma is None:
+        return CodeConstantDrive(name="rwa_cw_envelope", amplitude_code=1.0)
+    return CodeGaussianDrive(
+        name="rwa_gaussian_envelope",
+        amplitude_code=1.0,
+        center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
+        sigma_code=parameters.pulse_sigma,
+    )
 
 
 def simulate_rwa_frame(
@@ -73,39 +88,17 @@ def simulate_rwa_frame(
 ) -> list[Qobj]:
     if times is None:
         times = _default_tlist(parameters)
-    if drive is None:
-        drive = default_rwa_drive(parameters)
-    h_static = Qobj(np.array([[0.0, 0.0], [0.0, parameters.detuning]], dtype=np.complex128))
-    h_coupling = Qobj(np.array([[0.0, -1.0], [-1.0, 0.0]], dtype=np.complex128))
+    local_drive = default_rwa_drive(parameters) if drive is None else drive
     result = mesolve(
-        H=[h_static, [h_coupling, lambda t, args: float(args["drive"](t))]],
-        rho0=initial_density_matrix() if rho0 is None else rho0,
+        H=build_rwa_hamiltonian(parameters),
+        rho0=_rho0(parameters, rho0),
         tlist=times,
         c_ops=build_c_ops(parameters),
         e_ops=[],
-        args={"drive": drive},
+        args={"drive": local_drive},
+        options=_mesolve_options(parameters),
     )
     return list(result.states)
-
-
-def default_rwa_drive(parameters: OpticalBlochParameters) -> CodeConstantDrive | CodeGaussianDrive:
-    amplitude = parameters.dipole * parameters.field_amplitude
-    if parameters.pulse_sigma is None:
-        return CodeConstantDrive(name="rwa_cw_drive", amplitude_code=amplitude)
-    return CodeGaussianDrive(
-        name="rwa_gaussian_drive",
-        amplitude_code=amplitude,
-        center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-        sigma_code=parameters.pulse_sigma,
-    )
-
-
-def _energy_upper(parameters: OpticalBlochParameters) -> float:
-    return parameters.epsilon_1 + compute_energy_gap(
-        detuning=parameters.detuning,
-        omega_drive=parameters.omega_drive,
-        hbar=parameters.hbar,
-    )
 
 
 def _basic_sanity_checks(result: DynamicsResult) -> dict[str, object]:
@@ -127,17 +120,16 @@ def run_lab_case(parameters: OpticalBlochParameters, rho0: Qobj | None = None) -
     times, states = simulate_lab_frame(parameters, rho0=rho0)
     fields = parameter_fields(parameters)
     drive = fields[0] if len(fields) == 1 else None
-    field_expr = fields[0].to_expr() if len(fields) == 1 and hasattr(fields[0], "to_expr") else None
     result = DynamicsResult(
         mode="lab_exact",
         times=times,
         times_fs=parameters.times_fs,
         states=states,
         parameters=parameters,
-        metadata={"epsilon_2": _energy_upper(parameters)},
+        metadata={"energies_code": parameters.energies},
         drive=drive,
         drive_dict=drive.to_dict() if drive is not None and hasattr(drive, "to_dict") else None,
-        drive_expr=field_expr,
+        drive_expr=drive.to_expr() if drive is not None and hasattr(drive, "to_expr") else None,
         drive_name=getattr(drive, "name", None),
     )
     result.sanity_checks = evaluate_sanity_checks(result)
@@ -158,7 +150,7 @@ def run_rwa_case(
         times_fs=parameters.times_fs,
         states=states,
         parameters=parameters,
-        metadata={"epsilon_2": _energy_upper(parameters)},
+        metadata={"energies_code": parameters.energies},
         drive=local_drive,
         drive_dict=local_drive.to_dict(),
         drive_expr=local_drive.to_expr(),
@@ -168,9 +160,23 @@ def run_rwa_case(
     return result
 
 
+def rotating_frame_unitary(time: float, omega_drive: float) -> Qobj:
+    return Qobj(np.diag([1.0, np.exp(-1j * omega_drive * time)]).astype(np.complex128))
+
+
+def rotate_density_trajectory(times: np.ndarray, states: list[Qobj], omega_drive: float) -> list[Qobj]:
+    rotated_states: list[Qobj] = []
+    for time, rho_lab in zip(times, states):
+        unitary = rotating_frame_unitary(time, omega_drive)
+        rotated_states.append(unitary.dag() * rho_lab * unitary)
+    return rotated_states
+
+
 def make_rotating_view(lab_result: DynamicsResult) -> DynamicsResult:
     if lab_result.mode != "lab_exact":
         raise ValueError("make_rotating_view expects a lab_exact DynamicsResult.")
+    if lab_result.dimension() != 2:
+        raise ValueError("rotating_view 当前只用于 N=2 lab_exact 后处理。")
     states = rotate_density_trajectory(
         np.asarray(lab_result.times, dtype=float),
         lab_result.states,
@@ -191,36 +197,17 @@ def make_rotating_view(lab_result: DynamicsResult) -> DynamicsResult:
     return result
 
 
-def rotating_frame_unitary(time: float, omega_drive: float) -> Qobj:
-    return Qobj(
-        np.array(
-            [
-                [1.0, 0.0],
-                [0.0, np.exp(-1j * omega_drive * time)],
-            ],
-            dtype=np.complex128,
-        )
-    )
-
-
-def rotate_density_trajectory(times: np.ndarray, states: list[Qobj], omega_drive: float) -> list[Qobj]:
-    rotated_states: list[Qobj] = []
-    for time, rho_lab in zip(times, states):
-        unitary = rotating_frame_unitary(time, omega_drive)
-        rotated_states.append(unitary.dag() * rho_lab * unitary)
-    return rotated_states
-
-
 def optical_params_from_solver(
     solver: SolverParams,
-    physical: PhysicalParams | None = None,
+    physical: NLevelPhysicalParams | None = None,
     normalizer: ParaNormalizer | None = None,
 ) -> OpticalBlochParameters:
-    times_fs = None
     if normalizer is not None:
         times_fs = normalizer.denormalize_time_array(solver.tlist, solver)
     elif physical is not None:
         times_fs = np.linspace(physical.t_start_fs, physical.t_end_fs, len(solver.tlist))
+    else:
+        times_fs = None
 
     return OpticalBlochParameters(
         t_start=solver.t_start,
@@ -228,11 +215,14 @@ def optical_params_from_solver(
         dt=solver.dt,
         t_final=solver.t_end,
         hbar=1.0,
-        epsilon_1=0.0,
-        detuning=solver.detuning,
-        dipole=1.0,
-        field_amplitude=solver.rabi,
+        energies=tuple(float(value) for value in solver.energies_code),
+        dipole_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
+        coupling_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
         omega_drive=solver.omega_L,
+        relaxation_channels=solver.relaxation_channels_code,
+        pure_dephasing_channels=solver.pure_dephasing_channels_code,
+        field_amplitude=1.0,
+        detuning=solver.detuning,
         gamma1=solver.gamma1,
         gamma_phi=solver.gamma_phi,
         gamma2=solver.gamma2,
@@ -241,16 +231,16 @@ def optical_params_from_solver(
         fields=None,
         tlist=solver.tlist,
         times_fs=times_fs,
+        basis=None if physical is None else physical.basis,
     )
 
 
 def run_case(parameters: OpticalBlochParameters) -> DynamicsResult:
-    """Compatibility entrypoint. Prefer run_lab_case/run_rwa_case for new code."""
     return run_lab_case(parameters)
 
 
 def run_physical_case(
-    physical_params: PhysicalParams,
+    physical_params: NLevelPhysicalParams,
     normalizer: ParaNormalizer | None = None,
 ) -> DynamicsResult:
     local_normalizer = ParaNormalizer() if normalizer is None else normalizer
@@ -267,14 +257,14 @@ def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
     results: list[DynamicsResult] = []
     for detuning in sweep.detunings:
         for field_amplitude in sweep.field_amplitudes:
+            energies = (sweep.energies[0], sweep.omega_drive + detuning)
             parameters = OpticalBlochParameters(
                 t_final=sweep.t_final,
                 dt=sweep.dt,
                 hbar=sweep.hbar,
-                epsilon_1=sweep.epsilon_1,
-                detuning=detuning,
-                dipole=sweep.dipole,
-                field_amplitude=field_amplitude,
+                energies=energies,
+                dipole_matrix=sweep.dipole_matrix,
+                coupling_matrix=tuple(tuple(field_amplitude * complex(item) for item in row) for row in sweep.dipole_matrix),
                 omega_drive=sweep.omega_drive,
             )
             results.append(run_case(parameters))
@@ -287,7 +277,6 @@ def run_physical_parameter_sweep(
 ) -> list[DynamicsResult]:
     field_values = sweep.field_MV_per_cm_values or (sweep.base_params.field_MV_per_cm,)
     laser_values = sweep.laser_energy_eV_values or (sweep.base_params.laser_energy_eV,)
-
     results: list[DynamicsResult] = []
     for laser_energy_eV in laser_values:
         for field_MV_per_cm in field_values:
