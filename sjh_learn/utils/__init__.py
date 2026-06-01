@@ -36,6 +36,11 @@ from .io import (
 )
 from .model import build_c_ops, build_lab_hamiltonian, compute_detuning, compute_energy_gap
 from .normalization import ParaNormalizer
+from .observables import (
+    chi_two_level_linear,
+    dipole_expectation_D,
+    polarization_C_per_m2,
+)
 from .parameters import (
     NLevelPhysicalParams,
     NLevelSolverParams,
@@ -79,6 +84,9 @@ __all__ = [
     "PureDephasingChannel",
     "SolverParams",
     "ParaNormalizer",
+    "dipole_expectation_D",
+    "polarization_C_per_m2",
+    "chi_two_level_linear",
     "PhysicalParameterSweep",
     "ParameterSweep",
     "ConstantDrive",

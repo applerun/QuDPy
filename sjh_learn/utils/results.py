@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 from qutip import Qobj
 
+from .observables import dipole_expectation_D
 from .parameters import NLevelPhysicalParams, SolverParams
 
 
@@ -66,6 +67,14 @@ def _phase_with_mask(values: np.ndarray, *, threshold: float = 1e-8) -> tuple[np
     phase[mask] = np.nan
     phase_unwrapped[mask] = np.nan
     return phase, phase_unwrapped
+
+
+def _dipole_observable_label(mode: str) -> str | None:
+    if mode == "lab_exact":
+        return "dipole_expectation_lab_D"
+    if mode in {"rwa", "rotating_view"}:
+        return "dipole_expectation_envelope_D"
+    return None
 
 
 def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
@@ -187,6 +196,11 @@ class DynamicsResult:
     def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         return self.drive_code_values(times)
 
+    def dipole_expectation_D(self) -> np.ndarray | None:
+        if self.physical_params is None:
+            return None
+        return dipole_expectation_D(self.density_array(), self.physical_params.dipole_matrix_D)
+
     def max_trace_error(self) -> float:
         density = self.density_array()
         traces = np.trace(density, axis1=1, axis2=2)
@@ -276,6 +290,17 @@ class DynamicsResult:
             data["field_MV_per_cm"] = field_MV_per_cm
         return data
 
+    def _add_observable_columns(self, data: dict[str, Any]) -> dict[str, Any]:
+        label = _dipole_observable_label(self.mode)
+        dipole = self.dipole_expectation_D()
+        if label is None or dipole is None:
+            return data
+        # RWA 和 rotating_view 中的 dipole 是慢变量 envelope，不是完整 lab-frame polarization。
+        data[f"Re_{label}"] = dipole.real
+        data[f"Im_{label}"] = dipole.imag
+        data[f"abs_{label}"] = np.abs(dipole)
+        return data
+
     def components_dataframe(self):
         pd = _require_pandas()
         density = self.density_array()
@@ -293,6 +318,7 @@ class DynamicsResult:
             data[f"phase_{label}"] = phase
             data[f"phase_{label}_unwrapped"] = phase_unwrapped
         self._add_drive_columns(data)
+        self._add_observable_columns(data)
         return pd.DataFrame(data)
 
     def populations_dataframe(self):

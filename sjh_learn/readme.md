@@ -69,6 +69,18 @@ RWA 中真正进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是快速�
 
 density matrix、population、coherence 都是无量纲量。CSV 中主时间轴保存为真实 `time_fs`；NPZ 中同时保存 `time_fs` 和内部求解用的 `time_code`，方便回溯归一化。
 
+## Spectroscopy Observables
+
+`utils/observables.py` 提供第一层谱学 observable：
+
+- `dipole_expectation_D(rho_t, dipole_matrix_D)` 计算 `p(t)=Tr[rho(t) mu]`，单位 Debye。
+- `polarization_C_per_m2(rho_t, dipole_matrix_D, number_density_m3)` 计算 `P(t)=N p(t)`，单位 `C/m^2`，其中 `number_density_m3` 的单位是 `m^-3`。
+- `chi_two_level_linear(...)` 给出 two-level analytic linear-response susceptibility，用作后续数值谱学结果的参考。
+
+迹的指标约定是 `Tr(rho mu)=sum_ij rho_ij mu_ji`，代码使用 `np.einsum("tij,ji->t", rho_t, mu)`。这里必须使用物理输入 `dipole_matrix_D`，不能使用已经包含光场强度和 code-unit 归一化的 `coupling_matrix_code`。
+
+导出 `components.csv` 时，如果 result 携带 `physical_params.dipole_matrix_D`，会追加 dipole expectation 的 real / imag / abs 列。`lab_exact` 写作 `dipole_expectation_lab_D`；`rwa` 和 `rotating_view` 写作 `dipole_expectation_envelope_D`，表示慢变量 envelope，不等同于完整 lab-frame polarization。
+
 ## 绘图和 IO
 
 `utils/plotting.py` 提供低层绘图函数：

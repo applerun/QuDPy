@@ -174,6 +174,13 @@ def _trajectory_summary(result: ResultLike) -> dict[str, Any]:
 
 def _component_export_metadata(result: ResultLike) -> dict[str, Any]:
     dimension = result.dimension()
+    mode = getattr(result, "mode", None)
+    observable_label = None
+    if getattr(result, "physical_params", None) is not None:
+        if mode == "lab_exact":
+            observable_label = "dipole_expectation_lab_D"
+        elif mode in {"rwa", "rotating_view"}:
+            observable_label = "dipole_expectation_envelope_D"
     return {
         "dimension": dimension,
         "component_indexing": "zero_based",
@@ -181,6 +188,13 @@ def _component_export_metadata(result: ResultLike) -> dict[str, Any]:
         "saved_coherences": [f"rho_{i}{j}" for i in range(dimension) for j in range(i + 1, dimension)],
         "saved_coherences_rule": "upper triangular off-diagonal elements only",
         "coherence_components": ["real", "imag", "abs", "phase", "phase_unwrapped"],
+        "saved_observables": [] if observable_label is None else [observable_label],
+        "observable_components": [] if observable_label is None else ["real", "imag", "abs"],
+        "observable_note": (
+            None
+            if observable_label is None
+            else "dipole expectation uses physical dipole_matrix_D; RWA/rotating_view values are envelopes."
+        ),
         "density_npz": "full density matrix trajectory",
     }
 

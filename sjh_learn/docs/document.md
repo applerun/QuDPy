@@ -164,9 +164,21 @@ case_dir/
 └─ meta.json
 ```
 
-`meta.json` 包含 mode、`physical_params`、`solver_params_fs_inv`、`solver_params_code`、`drive_dict`、`drive_expr`、trace error 和 Hermiticity error。`components.csv` 现在是 dimension-aware：输出 `time_fs`、所有 diagonal populations（例如 `rho_00`）、所有 upper-triangular coherences（例如 `Re_rho_01`、`Im_rho_01`、`abs_rho_01`、`phase_rho_01`），并在可用时输出 `drive_code`、`drive_fs_inv` 和 `field_MV_per_cm`。
+`meta.json` 包含 mode、`physical_params`、`solver_params_fs_inv`、`solver_params_code`、`drive_dict`、`drive_expr`、trace error 和 Hermiticity error。`components.csv` 现在是 dimension-aware：输出 `time_fs`、所有 diagonal populations（例如 `rho_00`）、所有 upper-triangular coherences（例如 `Re_rho_01`、`Im_rho_01`、`abs_rho_01`、`phase_rho_01`），并在可用时输出 `drive_code`、`drive_fs_inv`、`field_MV_per_cm` 和 dipole expectation observable。
 
 density matrix、population、coherence 都是无量纲量；时间轴优先保存真实 fs。
+
+## Spectroscopy Observables
+
+第一层谱学 observable 放在 `utils/observables.py`，仍然从 `DynamicsResult` 的 density matrix trajectory 派生，不改变 solver/result 架构。
+
+- `dipole_expectation_D(rho_t, dipole_matrix_D)`：计算 `p(t)=Tr[rho(t) mu]`，单位 Debye。
+- `polarization_C_per_m2(rho_t, dipole_matrix_D, number_density_m3)`：计算可选宏观 polarization，单位 `C/m^2`；`number_density_m3` 的单位是 `m^-3`。
+- `chi_two_level_linear(...)`：two-level analytic linear susceptibility，用作 linear-response reference。
+
+矩阵指标约定为 `Tr(rho mu)=sum_ij rho_ij mu_ji`，实现使用 `np.einsum("tij,ji->t", rho_t, mu)`。observable 必须使用用户侧物理偶极矩 `dipole_matrix_D`，不能使用 `coupling_matrix_code`，因为后者已经包含光场和 code-unit 归一化。
+
+`components.csv` 会在已有 density-matrix 列之后追加可选 observable 列：`lab_exact` 使用 `dipole_expectation_lab_D`；`rwa` 和 `rotating_view` 使用 `dipole_expectation_envelope_D`。RWA envelope 是旋转框架慢变量，不应称为完整 lab-frame polarization。
 
 ## 顶层脚本
 
