@@ -39,7 +39,6 @@ from .normalization import ParaNormalizer
 from .parameters import (
     NLevelPhysicalParams,
     NLevelSolverParams,
-    OpticalBlochParameters,
     ParameterSweep,
     PhysicalParameterSweep,
     PureDephasingChannel,
@@ -75,7 +74,6 @@ from .solvers import (
 __all__ = [
     "DynamicsResult",
     "NLevelSolverParams",
-    "OpticalBlochParameters",
     "NLevelPhysicalParams",
     "RelaxationChannel",
     "PureDephasingChannel",

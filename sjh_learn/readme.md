@@ -16,14 +16,14 @@
 
 ## Field / Drive
 
-`utils/fields/` is split by physical meaning and unit boundary:
+`utils/fields/` 按物理含义和单位边界拆分：
 
-- `utils/fields/lab_fields.py`: user-facing lab-frame physical fields, including `CarrierFieldPhysical`, `GaussianCarrierFieldPhysical`, and `CompositeLabFieldPhysical`.
-- `utils/fields/rwa_drives.py`: user-facing physical RWA slow drives / couplings, including `ConstantRwaDrivePhysical`, `GaussianRwaDrivePhysical`, and `make_rwa_drive_from_physical_field()`.
-- `utils/fields/solver_inputs.py`: solver-internal code-unit callables such as `CodeCarrierField`, `CodeConstantDrive`, and `CodeGaussianDrive`.
-- `utils/fields/__init__.py`: public re-exports. Backward-compatible names such as `CarrierField` and `ConstantDrive` now point to physical user-facing classes; solver internals import `Code*` classes explicitly.
+- `utils/fields/lab_fields.py`：用户侧 lab-frame physical field，包括 `CarrierFieldPhysical`、`GaussianCarrierFieldPhysical` 和 `CompositeLabFieldPhysical`。
+- `utils/fields/rwa_drives.py`：用户侧 physical RWA slow drive / coupling，包括 `ConstantRwaDrivePhysical`、`GaussianRwaDrivePhysical` 和 `make_rwa_drive_from_physical_field()`。
+- `utils/fields/solver_inputs.py`：solver 内部 code-unit callable，例如 `CodeCarrierField`、`CodeConstantDrive` 和 `CodeGaussianDrive`。
+- `utils/fields/__init__.py`：公共 re-export。兼容名称 `CarrierField`、`ConstantDrive` 指向用户侧 physical class；solver 内部显式导入 `Code*` class。
 
-User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Ordinary examples should set `NLevelPhysicalParams` or physical field/drive objects; `amplitude_code`, `time_unit="code"`, and `domain="solver_code"` belong only to `ParaNormalizer`, solver/model internals, or `debug_meta.json`.
+用户侧 field/drive class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`，`ConstantRwaDrivePhysical.__call__(t_fs)` 返回单位为 `fs^-1` 的 `g(t)`。普通示例应设置 `NLevelPhysicalParams` 或 physical field/drive object；`amplitude_code`、`time_unit="code"` 和 `domain="solver_code"` 只属于 `ParaNormalizer`、solver/model 内部或 `debug_meta.json`。
 
 The lab-frame field and RWA drive are intentionally different objects:
 
@@ -162,12 +162,13 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 
 ## Unit Conventions
 
-- 现在用户侧标准物理系统对象是 `NLevelPhysicalParams`。two-level system 不再是核心层的特殊标量模型，而是 `N=2` 的普通 N-level system：例如 `basis=("g", "e")`、`energies_eV=(0.0, energy_gap_eV)`、`dipole_matrix_D=((0, mu_ge), (mu_eg, 0))`。
+- 现在用户侧标准物理系统对象是 `NLevelPhysicalParams`。two-level system 不再是核心层的特殊标量模型，而是 `N=2` 的普通 N-level system；multilevel system 也是普通 `N>2` system。
 - `dipole_matrix_D` 是沿选定 optical polarization 投影后的偶极矩矩阵，单位是 Debye。光场幅度仍用 `field_MV_per_cm`，归一化时会由 `ParaNormalizer` 转换为 coupling matrix。
 - population relaxation 由 `relaxation_channels` 定义，每个通道表示 `C_{to <- from} = sqrt(rate) |to><from|`。通道可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
 - pure dephasing 由 `pure_dephasing_channels` 定义，每个通道表示 `C_level^phi = sqrt(rate) |level><level|`。通道可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。
 - 标量 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 不再是核心物理模型输入；如果某个 N=2 example 需要这些概念，会在 example-local helper 中把它们翻译成 `dipole_matrix_D` 和 channel list。
 - `NLevelPhysicalParams` 使用真实物理单位，例如 `energies_eV`、`dipole_matrix_D`、`field_MV_per_cm`、`time_fs` 和 `fs^-1` 速率。
+- `NLevelSolverParams` 是内部 solver 参数容器，保存 N-level matrices、channel lists 和 code-unit 时间/频率；普通用户示例不直接构造它。
 - `ParaNormalizer` 把这些物理单位转换为 solver 内部使用的 code unit，包括时间、频率、drive 和 decay rate。
 - `model.py` 构造 N-level 的 `H0`、`H_int(t)` 和 Lindblad `c_ops`；`solvers.py` 每次只返回一条 `DynamicsResult` 轨迹。
 - 用户侧 field/drive 类只使用物理单位：`E0_MV_per_cm`、`laser_energy_eV` 或 `omega_L_fs_inv`、`phase_rad`、`pulse_center_fs`、`pulse_sigma_fs`，以及 RWA `amplitude_fs_inv`。

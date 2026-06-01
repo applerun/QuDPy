@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""RWA-only example: compare dephasing, redistribution, and both.
+"""RWA-only 示例：比较 dephasing、redistribution 以及二者同时存在。
 
-In this round, redistribution is simplified to excited-to-ground T1 relaxation:
-    C_down = sqrt(gamma1) |g><e|
-This is a one-way downward channel. Bidirectional or thermal redistribution can
-be added later; upward transitions are intentionally not included here.
+这里把 redistribution 简化为 excited-to-ground 的单向 relaxation channel：
+    C_{0 <- 1} = sqrt(rate) |0><1|
+这不是 thermal redistribution；向上跃迁和双向平衡过程以后再单独加入。
 
-Expected behavior:
-- no dissipation: Rabi oscillation does not decay.
-- dephasing only: coherence decays and Rabi oscillation is damped.
-- redistribution only: population is pulled toward a ground-state-dominated steady state.
-- both: population and coherence are both damped and the system reaches steady state faster.
-- With both T1 and Tphi present, coherence decay follows the direction
-  1 / T2 = 1 / (2 T1) + 1 / Tphi.
+预期行为：
+- no dissipation：Rabi oscillation 不衰减。
+- dephasing only：coherence 衰减，并阻尼 Rabi oscillation。
+- redistribution only：population 被拉向 ground-state-dominated steady state。
+- both：population 和 coherence 都被阻尼，系统更快到达 steady state。
+- T1 和 Tphi 同时存在时，coherence decay 的方向满足
+  1 / T2 = 1 / (2 T1) + 1 / Tphi。
 """
 
 from __future__ import annotations

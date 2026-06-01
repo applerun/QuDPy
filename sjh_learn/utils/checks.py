@@ -57,18 +57,18 @@ def _two_level_elements_from_result(result: DynamicsResult) -> dict[str, np.ndar
 def _simulate_lab_for_check(
     parameters: NLevelSolverParams,
     rho0: Qobj,
-    field_amplitude_override: float = 0.0,
+    amplitude_code_override: float = 0.0,
 ) -> tuple[np.ndarray, list[Qobj]]:
     times = _default_tlist(parameters)
     fields = (
         CodeCarrierField(
-            amplitude_code=field_amplitude_override,
+            amplitude_code=amplitude_code_override,
             omega_code=parameters.omega_drive,
             phase=0.0,
         )
         if parameters.pulse_sigma is None
         else CodeGaussianCarrierField(
-            amplitude_code=field_amplitude_override,
+            amplitude_code=amplitude_code_override,
             omega_code=parameters.omega_drive,
             phase=0.0,
             center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
@@ -86,8 +86,13 @@ def _simulate_lab_for_check(
     return times, list(result.states)
 
 
+def _has_positive_channel(channels: tuple[dict[str, Any], ...]) -> bool:
+    return any(float(channel.get("rate_code", channel.get("rate", 0.0))) > 0 for channel in channels)
+
+
 def _simulate_relaxation_sanity(parameters: NLevelSolverParams) -> dict[str, Any]:
-    aux_parameters = replace(parameters, gamma_phi=0.0)
+    # 辅助检查只移除 pure dephasing channel，保留 relaxation channel 的 N-level 构造。
+    aux_parameters = replace(parameters, pure_dephasing_channels=())
     times, states = _simulate_lab_for_check(aux_parameters, excited_density_matrix(), 0.0)
     elements = _two_level_elements_from_states(states)
     rho_00 = elements["rho_00"]
@@ -103,7 +108,8 @@ def _simulate_relaxation_sanity(parameters: NLevelSolverParams) -> dict[str, Any
 
 
 def _simulate_pure_dephasing_sanity(parameters: NLevelSolverParams) -> dict[str, Any]:
-    aux_parameters = replace(parameters, gamma1=0.0)
+    # 辅助检查只移除 population relaxation channel，避免回到旧的全局 gamma 标量路径。
+    aux_parameters = replace(parameters, relaxation_channels=())
     times, states = _simulate_lab_for_check(aux_parameters, coherent_superposition_density_matrix(), 0.0)
     elements = _two_level_elements_from_states(states)
     rho_00 = elements["rho_00"]
@@ -128,7 +134,7 @@ def _simulate_pure_dephasing_sanity(parameters: NLevelSolverParams) -> dict[str,
 
 
 def _simulate_closed_system_sanity(parameters: NLevelSolverParams) -> dict[str, Any]:
-    aux_parameters = replace(parameters, gamma1=0.0, gamma_phi=0.0)
+    aux_parameters = replace(parameters, relaxation_channels=(), pure_dephasing_channels=())
     times, states = _simulate_lab_for_check(aux_parameters, initial_density_matrix(), 0.0)
     elements = _two_level_elements_from_states(states)
     rho_00 = elements["rho_00"]
@@ -172,9 +178,9 @@ def evaluate_sanity_checks(result: DynamicsResult) -> dict[str, Any]:
     rho_10 = elements["rho_10"]
     checks["zero_field_closed_system_auxiliary"] = _simulate_closed_system_sanity(result.parameters)
 
-    if result.parameters.gamma_phi > 0:
+    if _has_positive_channel(result.parameters.pure_dephasing_channels):
         checks["pure_dephasing_auxiliary"] = _simulate_pure_dephasing_sanity(result.parameters)
-    if result.parameters.gamma1 > 0:
+    if _has_positive_channel(result.parameters.relaxation_channels):
         checks["population_relaxation_auxiliary"] = _simulate_relaxation_sanity(result.parameters)
 
     checks["coherence_norm_final"] = {

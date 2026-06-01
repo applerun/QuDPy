@@ -38,19 +38,19 @@ def _rho0(parameters: NLevelSolverParams, rho0: Qobj | None) -> Qobj:
 def simulate_lab_frame(
     parameters: NLevelSolverParams,
     rho0: Qobj | None = None,
-    field_amplitude_override: float | None = None,
+    amplitude_code_override: float | None = None,
 ) -> tuple[np.ndarray, list[Qobj]]:
     times = _default_tlist(parameters)
     fields = parameter_fields(parameters)
-    if field_amplitude_override is not None:
+    if amplitude_code_override is not None:
         fields = (
             CodeCarrierField(
-                amplitude_code=field_amplitude_override,
+                amplitude_code=amplitude_code_override,
                 omega_code=parameters.omega_drive,
             )
             if parameters.pulse_sigma is None
             else CodeGaussianCarrierField(
-                amplitude_code=field_amplitude_override,
+                amplitude_code=amplitude_code_override,
                 omega_code=parameters.omega_drive,
                 center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
                 sigma_code=parameters.pulse_sigma,
@@ -221,11 +221,7 @@ def optical_params_from_solver(
         omega_drive=solver.omega_L,
         relaxation_channels=solver.relaxation_channels_code,
         pure_dephasing_channels=solver.pure_dephasing_channels_code,
-        field_amplitude=1.0,
         detuning=solver.detuning,
-        gamma1=solver.gamma1,
-        gamma_phi=solver.gamma_phi,
-        gamma2=solver.gamma2,
         pulse_center=solver.pulse_center,
         pulse_sigma=solver.pulse_sigma,
         fields=None,
@@ -256,7 +252,7 @@ def run_physical_case(
 def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
     results: list[DynamicsResult] = []
     for detuning in sweep.detunings:
-        for field_amplitude in sweep.field_amplitudes:
+        for amplitude_scale in sweep.field_amplitudes:
             energies = (sweep.energies[0], sweep.omega_drive + detuning)
             parameters = NLevelSolverParams(
                 t_final=sweep.t_final,
@@ -264,7 +260,7 @@ def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
                 hbar=sweep.hbar,
                 energies=energies,
                 dipole_matrix=sweep.dipole_matrix,
-                coupling_matrix=tuple(tuple(field_amplitude * complex(item) for item in row) for row in sweep.dipole_matrix),
+                coupling_matrix=tuple(tuple(amplitude_scale * complex(item) for item in row) for row in sweep.dipole_matrix),
                 omega_drive=sweep.omega_drive,
             )
             results.append(run_case(parameters))

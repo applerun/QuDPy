@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""RWA-only example: T1 redistribution damps population and coherence.
+"""RWA-only 示例：population relaxation 会阻尼 population 和 coherence。
 
-In this round, redistribution is simplified to excited-to-ground T1 relaxation:
-    C_down = sqrt(gamma1) |g><e|
-This is a one-way downward channel. Bidirectional or thermal redistribution can
-be added later; upward transitions are intentionally not included here.
+这里把 redistribution 简化为 excited-to-ground 的单向 relaxation channel：
+    C_{0 <- 1} = sqrt(rate) |0><1|
+这不是 thermal redistribution；向上跃迁和双向平衡过程以后再单独加入。
 
-Expected behavior:
-- Shorter T1 makes excited-state population relax to the ground state more easily.
-- Rabi oscillations are damped by population relaxation.
-- Under continuous RWA drive, the system approaches a steady state set by drive and relaxation.
-- Relaxation affects population and also contributes coherence decay through 1 / (2 T1).
+预期行为：
+- T1 越短，excited-state population 越容易回到 ground state。
+- population relaxation 会阻尼 Rabi oscillation。
+- 连续 RWA drive 下，系统会趋向由 drive 和 relaxation 共同决定的 steady state。
+- relaxation 影响 population，也会通过 1 / (2 T1) 贡献 coherence decay。
 """
 
 from __future__ import annotations

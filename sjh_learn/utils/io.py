@@ -52,7 +52,8 @@ def default_output_path(output_dir: Path, result: ResultLike) -> Path:
         amplitude_tag = format_value_tag(physical.field_MV_per_cm)
         detuning_tag = format_value_tag(solver.detuning_fs_inv)
     else:
-        amplitude_tag = format_value_tag(getattr(parameters, "field_amplitude", 0.0))
+        coupling = getattr(parameters, "coupling_matrix", None) or getattr(parameters, "dipole_matrix", ((0.0,),))
+        amplitude_tag = format_value_tag(float(np.max(np.abs(np.asarray(coupling, dtype=np.complex128)))))
         detuning_tag = format_value_tag(getattr(parameters, "detuning", 0.0))
     return output_dir / f"comparison_E0_{amplitude_tag}_Delta_{detuning_tag}.png"
 

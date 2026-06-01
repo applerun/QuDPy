@@ -60,13 +60,15 @@ def coherent_superposition_density_matrix() -> Qobj:
 
 
 def default_field_config(parameters: NLevelSolverParams):
+    # lab-frame 主线的耦合强度已经写入 N-level dipole/coupling matrix。
+    # 默认 optical carrier 只提供无量纲时间包络，幅值固定为 1 code unit。
     if parameters.pulse_sigma is None:
         return CodeCarrierField(
-            amplitude_code=parameters.field_amplitude,
+            amplitude_code=1.0,
             omega_code=parameters.omega_drive,
         )
     return CodeGaussianCarrierField(
-        amplitude_code=parameters.field_amplitude,
+        amplitude_code=1.0,
         omega_code=parameters.omega_drive,
         center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
         sigma_code=parameters.pulse_sigma,

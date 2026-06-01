@@ -40,14 +40,14 @@ sjh_learn/
 
 ## fields/
 
-`utils/fields/` is split by physical meaning and unit boundary:
+`utils/fields/` 按物理含义和单位边界拆分：
 
-- `lab_fields.py` contains user-facing lab-frame physical fields: `CarrierFieldPhysical`, `GaussianCarrierFieldPhysical`, and `CompositeLabFieldPhysical`.
-- `rwa_drives.py` contains user-facing physical RWA effective slow drives / couplings: `ConstantRwaDrivePhysical`, `GaussianRwaDrivePhysical`, and `make_rwa_drive_from_physical_field()`.
-- `solver_inputs.py` contains solver-internal code-unit callables such as `CodeCarrierField`, `CodeConstantDrive`, and `CodeGaussianDrive`.
-- `__init__.py` re-exports the public API. Backward-compatible names such as `CarrierField` and `ConstantDrive` now point to physical user-facing classes; solver internals import `Code*` classes explicitly.
+- `lab_fields.py` 保存用户侧 lab-frame physical field：`CarrierFieldPhysical`、`GaussianCarrierFieldPhysical` 和 `CompositeLabFieldPhysical`。
+- `rwa_drives.py` 保存用户侧 physical RWA effective slow drive / coupling：`ConstantRwaDrivePhysical`、`GaussianRwaDrivePhysical` 和 `make_rwa_drive_from_physical_field()`。
+- `solver_inputs.py` 保存 solver 内部 code-unit callable，例如 `CodeCarrierField`、`CodeConstantDrive` 和 `CodeGaussianDrive`。
+- `__init__.py` re-export 公共 API。兼容名称 `CarrierField`、`ConstantDrive` 指向用户侧 physical class；solver 内部显式导入 `Code*` class。
 
-User-facing field/drive classes use physical units only. `CarrierFieldPhysical.__call__(t_fs)` returns `E(t)` in `MV/cm`, and `ConstantRwaDrivePhysical.__call__(t_fs)` returns `g(t)` in `fs^-1`. Code-unit inputs live in `solver_inputs.py` and should be created only after `ParaNormalizer` has converted physical parameters.
+用户侧 field/drive class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`，`ConstantRwaDrivePhysical.__call__(t_fs)` 返回单位为 `fs^-1` 的 `g(t)`。Code-unit input 位于 `solver_inputs.py`，只应在 `ParaNormalizer` 完成物理参数转换后创建。
 
 The physical lab-frame field and the RWA drive are not the same object:
 
@@ -232,7 +232,8 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 
 ## Unit Conventions
 
-- `NLevelPhysicalParams` 是当前用户侧标准物理系统对象。two-level system 只是 `N=2` 的普通 N-level system，不再由核心层的 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 标量字段表示。
+- `NLevelPhysicalParams` 是当前用户侧标准物理系统对象。two-level system 只是 `N=2` 的普通 N-level system，multilevel system 是普通 `N>2` system，不再由核心层的 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 标量字段表示。
+- `NLevelSolverParams` 是内部 solver 参数容器，保存 N-level matrices、channel lists 和 code-unit 时间/频率；普通示例不直接构造它。
 - `basis` 可选保存能级名称；`energies_eV` 保存长度为 N 的能级列表；`dipole_matrix_D` 保存沿选定 optical polarization 投影后的 N x N 偶极矩矩阵，单位为 Debye。
 - `relaxation_channels` 定义 population relaxation：`C_{to <- from} = sqrt(rate) |to><from|`，每个 channel 可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
 - `pure_dephasing_channels` 定义 level projector pure dephasing：`C_level^phi = sqrt(rate) |level><level|`，每个 channel 可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。

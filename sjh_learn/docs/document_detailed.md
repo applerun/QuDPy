@@ -53,9 +53,9 @@ rwa.mode      = "rwa"
 |---|---|---|
 | 参数定义 | `parameters.py` | 定义物理输入参数和 solver 参数 |
 | 单位转换 | `normalization.py` | eV、fs、Debye、MV/cm 与 solver code unit 转换 |
-| 光场/drive | `fields.py` | 定义 Lab-frame 电场和 RWA drive |
+| 光场/drive | `fields/` | 定义 Lab-frame 电场、RWA drive 和内部 code-unit callable |
 | 模型构造 | `model.py` | 构建 Hamiltonian、collapse operators、rotating transform |
-| 求解器 | `solvers.py`、`multilevel.py` | 调用 QuTiP 求解或构造派生 result |
+| 求解器 | `solvers.py` | 调用 QuTiP 求解或构造派生 result |
 | 结果对象 | `results.py` | 保存 density matrix trajectory 和通用访问接口 |
 | 绘图 | `plotting.py` | 根据 result 画图，返回 matplotlib 句柄 |
 | IO | `io.py` | 保存数据、metadata 和 figure |
@@ -76,10 +76,9 @@ sjh_learn/
 │  ├─ rwa_03_redistribution.py
 │  └─ rwa_04_dephasing_and_redistribution.py
 └─ utils/
-   ├─ fields.py
+   ├─ fields/
    ├─ model.py
    ├─ solvers.py
-   ├─ multilevel.py
    ├─ results.py
    ├─ plotting.py
    ├─ io.py
@@ -92,7 +91,7 @@ sjh_learn/
 
 - `optical_bloch_demo.py`：Lab-frame / rotating view / RWA 三种结果对比；
 - `multilevel_demo.py`：multi-level lab-frame 示例；
-- `n2_equivalence_check.py`：检查 two-level lab-frame 与 N=2 multi-level lab-frame 一致性；
+- `n2_equivalence_check.py`：检查 N=2 physical mainline 与显式 normalize+solver 路径一致性；
 - `examples/rwa_*.py`：RWA-only 参数扫描和物理现象验证；
 - `utils/`：核心模块。
 
@@ -271,35 +270,32 @@ E_total(t) = E_1(t) + E_2(t) + ...
 
 ## 4. `parameters.py`
 
-### 4.1 `PhysicalParams`
+### 4.1 `NLevelPhysicalParams`
 
-`PhysicalParams` 保存用户输入的真实物理参数。
+`NLevelPhysicalParams` 是当前用户侧正式物理系统输入。two-level system 是普通 `N=2` 系统，multilevel system 是普通 `N>2` 系统。
 
 常见字段：
 
 | 字段 | 含义 | 单位 |
 |---|---|---|
-| `energy_gap_eV` | 两能级能量差 | eV |
+| `basis` | 能级标签 | dimensionless |
+| `energies_eV` | N 个能级能量 | eV |
 | `laser_energy_eV` | 激光光子能量 | eV |
-| `dipole_D` | 跃迁偶极矩 | Debye |
+| `dipole_matrix_D` | 沿 selected optical polarization 投影后的 N x N 偶极矩矩阵 | Debye |
 | `field_MV_per_cm` | 电场幅度参数 `E0` | MV/cm |
-| `T1_fs` | population relaxation time | fs |
-| `Tphi_fs` | pure dephasing time | fs |
+| `relaxation_channels` | population relaxation channel list | fs 或 fs^-1 |
+| `pure_dephasing_channels` | pure dephasing projector channel list | fs 或 fs^-1 |
 | `t_start_fs` | 模拟起始时间 | fs |
 | `t_end_fs` | 模拟结束时间 | fs |
 | `dt_fs` | 输出时间间隔 | fs |
 | `pulse_center_fs` | 脉冲中心 | fs |
 | `pulse_sigma_fs` | 脉冲宽度 | fs |
 
-注意：
+注意：核心 API 不再使用 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 这些 two-level 标量作为物理系统字段。普通 N=2 example 可以在 example-local helper 中保留教学变量，但必须立即转换成 `dipole_matrix_D`、`relaxation_channels` 和 `pure_dephasing_channels`。
 
-- `T1_fs=None` 表示不加入 T1 relaxation；
-- `Tphi_fs=None` 表示不加入 pure dephasing；
-- `field_MV_per_cm` 是输入幅度参数，不一定等于瞬时峰值场。
+### 4.2 `NLevelSolverParams`
 
-### 4.2 `SolverParams`
-
-`SolverParams` 是求解器内部使用的参数，通常已经完成单位转换。
+`NLevelSolverParams` 是求解器内部使用的参数，通常已经完成单位转换。普通用户示例应先构造 `NLevelPhysicalParams`，再经 `ParaNormalizer` 转换。
 
 常见字段：
 
@@ -309,13 +305,13 @@ E_total(t) = E_1(t) + E_2(t) + ...
 | `t_end` / `t_final` | solver 结束时间 |
 | `dt` | solver 输出时间步长 |
 | `tlist` | solver 时间数组 |
-| `epsilon_1`、`epsilon_2` | 能级参数或角频率参数 |
-| `detuning` | RWA detuning，通常为 code unit |
-| `field_amplitude` | solver unit 下的 drive / field amplitude |
+| `energies` | N-level energy array in code unit |
+| `dipole_matrix` | N-level lab-frame coupling matrix in code unit |
+| `coupling_matrix` | RWA slow coupling matrix in code unit |
+| `detuning` | 兼容性摘要，通常为 code unit |
 | `omega_drive` | 激光角频率或 drive 频率 |
-| `gamma1` | T1 relaxation rate in code unit |
-| `gamma_phi` | pure dephasing rate in code unit |
-| `gamma2` | total coherence decay rate in code unit |
+| `relaxation_channels` | population relaxation channels in code unit |
+| `pure_dephasing_channels` | pure dephasing channels in code unit |
 | `pulse_center` | code unit 下的 pulse center |
 | `pulse_sigma` | code unit 下的 pulse width |
 
@@ -377,11 +373,7 @@ population_rabi_period = pi / g
 
 弛豫速率：
 
-```text
-gamma1_fs_inv     = 1 / T1_fs
-gamma_phi_fs_inv  = 1 / Tphi_fs
-gamma2_fs_inv     = gamma1_fs_inv / 2 + gamma_phi_fs_inv
-```
+population relaxation 由 `relaxation_channels` 给出，每个 channel 表示 `C_{to <- from} = sqrt(rate) |to><from|`。pure dephasing 由 `pure_dephasing_channels` 给出，每个 channel 表示 `C_level^phi = sqrt(rate) |level><level|`。
 
 code unit：
 
@@ -389,17 +381,9 @@ code unit：
 quantity_code = quantity_fs_inv * time_scale_fs
 ```
 
-### 5.2 当前限制
+### 5.2 当前定位
 
-当前 `ParaNormalizer` 主要服务 two-level physical path。
-
-Multi-level path 目前默认输入已经是 solver-ready / code-unit：
-
-```text
-MultiLevelParameters are solver-ready/code-unit inputs.
-```
-
-也就是说，multi-level 中的 energies、dipole matrix、fields 暂不自动从 eV、Debye、MV/cm 转换。
+`ParaNormalizer` 服务统一 N-level physical mainline：`NLevelPhysicalParams -> ParaNormalizer -> NLevelSolverParams`。two-level system 是 `N=2`，multilevel system 是 `N>2`，两者都走同一条 normalizer 和 solver 路径。
 
 ## 6. `model.py`
 
@@ -455,18 +439,18 @@ H_RWA = -Delta |e><e| - g(t)(|e><g| + |g><e|)
 
 功能：构建 Lindblad collapse operators。
 
-T1 relaxation：
+population relaxation channel：
 
 ```text
-C_down = sqrt(gamma1) |g><e|
+C_{to <- from} = sqrt(rate) |to><from|
 ```
 
-作用：把 excited-state population 拉回 ground state，同时贡献 coherence decay。
+作用：把 population 从 `from_level` 转移到 `to_level`，同时通过 Lindblad 项影响 coherence。
 
-Pure dephasing：
+pure dephasing channel：
 
 ```text
-C_phi = sqrt(gamma_phi / 2) sigma_z
+C_level^phi = sqrt(rate) |level><level|
 ```
 
 作用：主要破坏 coherence，不直接导致 excited-to-ground population transfer。
@@ -587,58 +571,28 @@ lab_result.states
 - 不使用 RWA Hamiltonian；
 - 只是换表象观察同一条 Lab-frame trajectory。
 
-## 8. `multilevel.py`
+## 8. N-level mainline
 
-### 8.1 当前定位
-
-`multilevel.py` 负责 multi-level lab-frame simulation。当前主要用途是：
-
-- 验证 N-level density matrix 框架；
-- 验证 N=2 multilevel 与 two-level lab-frame 一致；
-- 为后续 multi-level physical normalization 和 multi-level RWA 做准备。
-
-当前不做：
-
-- multi-level physical normalization；
-- multi-level RWA；
-- automatic selected transitions；
-- thermal redistribution。
-
-### 8.2 `MultiLevelParameters`
-
-常见字段：
-
-| 字段 | 含义 |
-|---|---|
-| `energies` | N 个能级的 solver-ready energy / angular frequency |
-| `dipole_matrix` | N x N 偶极矩矩阵，当前默认 solver-ready |
-| `fields` | field 配置或 field 对象 |
-| `collapse_channels` | collapse channel 配置 |
-| `tlist` | 时间数组 |
-| `rho0` | 初始密度矩阵 |
-
-注意：当前这些输入不自动理解为 eV / Debye / MV/cm。
-
-### 8.3 `simulate_multilevel_lab_frame(...)`
-
-功能：运行 multi-level Lab-frame simulation。
-
-需要检查：
-
-- `dipole_matrix` 是否为 N x N；
-- `rho0` 是否为 N x N；
-- collapse operators 是否为 N x N；
-- `tlist` 是否有效。
-
-返回：
-
-- `DynamicsResult(mode="multilevel_lab")`。
-
-metadata 中应明确：
+旧的独立 multi-level solver route 已移除。当前 multi-level 示例直接使用统一主线：
 
 ```text
-multilevel_units = solver_ready_or_code_unit
+NLevelPhysicalParams
+-> ParaNormalizer
+-> NLevelSolverParams
+-> model.py
+-> solvers.py
+-> DynamicsResult
 ```
+
+`multilevel_demo.py` 只是一个 `N>2` 的普通 physical example，不再依赖独立的 legacy solver 参数对象。
+
+### 8.3 N>2 lab-frame 示例
+
+N>2 lab-frame 示例通过 `run_physical_case()` 进入统一求解路径，返回普通 `DynamicsResult(mode="lab_exact")`。需要检查：
+
+- `dipole_matrix_D` 是否为 N x N；
+- `relaxation_channels` 和 `pure_dephasing_channels` 的 level index 是否在范围内；
+- `components.csv` 是否包含所有 diagonal population 和 upper-triangular coherence。
 
 ## 9. `results.py`
 
@@ -677,7 +631,6 @@ multilevel_units = solver_ready_or_code_unit
 | `lab_exact` | two-level Lab-frame exact simulation |
 | `rotating_view` | 由 lab result 派生的 rotating-frame view |
 | `rwa` | two-level RWA simulation |
-| `multilevel_lab` | multi-level Lab-frame simulation |
 
 #### `times`
 
@@ -705,7 +658,7 @@ multilevel_units = solver_ready_or_code_unit
 - `components.csv` 的 `time_fs`；
 - `meta.json` 的 `time_range_fs`。
 
-注意：multi-level 当前可能只是 solver-ready 时间，需要结合 `multilevel_units` 判断。
+注意：physical mainline 会保存 `times_fs`；内部 code-unit 时间仍保存在 `density.npz` 的 `time_code` 和 `debug_meta.json`。
 
 #### `states`
 
@@ -739,12 +692,13 @@ states[k] = rho(t_k)
 
 常见字段：
 
-- `energy_gap_eV`
+- `basis`
+- `energies_eV`
 - `laser_energy_eV`
-- `dipole_D`
+- `dipole_matrix_D`
 - `field_MV_per_cm`
-- `T1_fs`
-- `Tphi_fs`
+- `relaxation_channels`
+- `pure_dephasing_channels`
 - `t_start_fs`
 - `t_end_fs`
 - `dt_fs`
@@ -760,11 +714,12 @@ states[k] = rho(t_k)
 可能包含：
 
 - `detuning`
-- `field_amplitude`
 - `omega_drive`
-- `gamma1`
-- `gamma_phi`
-- `gamma2`
+- `energies`
+- `dipole_matrix`
+- `coupling_matrix`
+- `relaxation_channels`
+- `pure_dephasing_channels`
 - `tlist`
 
 注意：这些多为 code unit，主要写入 `debug_meta.json`。
@@ -1218,7 +1173,6 @@ case_dir/
   "solver_code_summary": {},
   "trajectory_summary": {},
   "component_export": {},
-  "multilevel_units": {},
   "output_files": {}
 }
 ```
@@ -1228,13 +1182,15 @@ case_dir/
 保存用户输入的物理条件，例如：
 
 - `energy_gap_eV`
+- `basis`
+- `energies_eV`
 - `laser_energy_eV`
 - `detuning_eV`
 - `wavelength_nm`
-- `dipole_D`
+- `dipole_matrix_D`
 - `field_MV_per_cm`
-- `T1_fs`
-- `Tphi_fs`
+- `relaxation_channels`
+- `pure_dephasing_channels`
 - `t_start_fs`
 - `t_end_fs`
 - `dt_fs`
@@ -1249,23 +1205,20 @@ case_dir/
 - `omega_L_fs_inv`
 - `detuning_fs_inv`
 - `rabi_fs_inv`
-- `gamma1_fs_inv`
-- `gamma_phi_fs_inv`
-- `gamma2_fs_inv`
-- `T2_effective_fs`
+- `relaxation channel rates in fs^-1`
+- `pure dephasing channel rates in fs^-1`
 - `population_rabi_period_fs`
 
 #### `solver_code_summary`
 
-保存少量 code-unit 标量，例如：
+`meta.json` 中只保留指向 `debug_meta.json` 的说明。完整 code-unit 内容放在 `debug_meta.json`，例如：
 
 - `time_scale_fs`
 - `detuning_code`
-- `field_amplitude_code`
 - `omega_drive_code`
-- `gamma1_code`
-- `gamma_phi_code`
-- `gamma2_code`
+- `coupling_matrix_code`
+- `relaxation_channels_code`
+- `pure_dephasing_channels_code`
 - `t_start_code`
 - `t_end_code`
 - `dt_code`
@@ -1391,11 +1344,8 @@ time_fs, rho_00, rho_11, ..., rho_N-1_N-1
 - `detuning_fs_inv`
 - `rabi_fs_inv`
 - `rabi_code`
-- `T1_fs`
-- `Tphi_fs`
-- `gamma1_fs_inv`
-- `gamma_phi_fs_inv`
-- `gamma2_fs_inv`
+- `relaxation_channels`
+- `pure_dephasing_channels`
 - `max_rho_11`
 - `final_rho_11`
 - `max_abs_rho_01`
@@ -1413,7 +1363,7 @@ two-level helper 可以存在于 `checks.py` 或 `examples/rwa_common.py`，但�
 
 ### 14.2 N=2 equivalence check
 
-功能：比较 two-level lab-frame 和 N=2 multilevel lab-frame。
+功能：比较 N=2 `run_physical_case()` 封装路径和显式 `ParaNormalizer -> run_lab_case()` 路径。
 
 常见比较对象：
 
@@ -1452,7 +1402,7 @@ rwa = run_rwa_case(parameters)
 
 - `components.csv` 是否包含所有 diagonal 和 upper-triangular coherence；
 - `meta.json` 是否有 `dimension` 和 `component_export`；
-- `multilevel_units` 是否明确说明当前输入是 solver-ready。
+- `inputs_physical` 是否包含 `basis`、`energies_eV`、`dipole_matrix_D` 和 channel lists。
 
 ### 15.3 RWA examples
 
@@ -1481,11 +1431,10 @@ rwa = run_rwa_case(parameters)
 - `plot_coherences()` 支持任意 N；
 - multi-level preview 支持 populations / coherence abs / coherence phase；
 - `meta.json` 记录 `component_export`；
-- `multilevel_lab` metadata 标注 solver-ready/code-unit inputs。
+- N>2 示例走统一 physical mainline，并在 `meta.json` 中记录物理单位输入。
 
 尚未实现：
 
-- multi-level physical normalization；
 - multi-level RWA；
 - selected transition automation；
 - thermal redistribution；

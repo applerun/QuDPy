@@ -192,21 +192,7 @@ class NLevelSolverParams:
     pulse_center: float | None = None
     pulse_sigma: float | None = None
     basis: tuple[str, ...] | None = None
-
-    # 临时兼容字段：旧 code-unit helper 可能还会读取这些标量。
-    # 新的 solver/model 路径不依赖它们，后续可逐步删除。
-    epsilon_1: float = 0.0
     detuning: float = 0.0
-    dipole: float = 1.0
-    field_amplitude: float = 1.0
-    gamma1: float = 0.0
-    gamma_phi: float = 0.0
-    gamma2: float = 0.0
-
-
-# 临时兼容别名：旧脚本可能仍从 utils 导入 `OpticalBlochParameters`。
-# 推荐新代码使用 `NLevelSolverParams`，普通用户侧入口使用 `NLevelPhysicalParams`。
-OpticalBlochParameters = NLevelSolverParams
 
 
 @dataclass(frozen=True)
@@ -240,7 +226,6 @@ __all__ = [
     "PureDephasingChannel",
     "SolverParams",
     "NLevelSolverParams",
-    "OpticalBlochParameters",
     "PhysicalParameterSweep",
     "ParameterSweep",
     "as_complex_matrix",
