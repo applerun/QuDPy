@@ -160,6 +160,7 @@ def save_case_result(
     case_name: str | None = None,
     example_name: str | None = None,
     condition_name: str | None = None,
+    save_populations_csv: bool = True,
 ):
     preview_fig = None
     if preview:
@@ -175,6 +176,7 @@ def save_case_result(
             case_name=case_name,
             example_name=example_name,
             condition_name=condition_name,
+            save_populations_csv=save_populations_csv,
             append_results_csv=False,
         )
     finally:

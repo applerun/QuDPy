@@ -90,6 +90,27 @@ def _has_positive_channel(channels: tuple[dict[str, Any], ...]) -> bool:
     return any(float(channel.get("rate_code", channel.get("rate", 0.0))) > 0 for channel in channels)
 
 
+def _lab_field_export_matches_solver_input(result: DynamicsResult) -> dict[str, Any]:
+    if result.mode != "lab_exact":
+        return {"passed": True, "skipped": "not_lab_exact"}
+    if result.physical_params is None or result.drive is None:
+        return {"passed": True, "skipped": "missing_physical_params_or_solver_field_callable"}
+
+    # 这里检查输出/分析层使用的物理电场是否直接来自 solver 实际 field callable。
+    # solver field 是无量纲 code-unit 时间函数；乘以 field_MV_per_cm 后才是 MV/cm。
+    expected = np.asarray(result.drive(result.times), dtype=float) * float(result.physical_params.field_MV_per_cm)
+    exported = result.field_MV_per_cm_values()
+    if exported is None:
+        return {"passed": False, "reason": "field_MV_per_cm_values returned None for lab_exact result."}
+    max_difference = float(np.max(np.abs(np.asarray(exported, dtype=float) - expected)))
+    return {
+        "max_difference_MV_per_cm": max_difference,
+        "threshold_MV_per_cm": 1e-12,
+        "passed": bool(max_difference < 1e-12),
+        "source": "solver_field_callable_times_physical_field_MV_per_cm",
+    }
+
+
 def _simulate_relaxation_sanity(parameters: NLevelSolverParams) -> dict[str, Any]:
     # 辅助检查只移除 pure dephasing channel，保留 relaxation channel 的 N-level 构造。
     aux_parameters = replace(parameters, pure_dephasing_channels=())
@@ -168,6 +189,7 @@ def evaluate_sanity_checks(result: DynamicsResult) -> dict[str, Any]:
         "dimension": result.dimension(),
         "population_sum_final": float(np.sum(populations[-1].real)),
     }
+    checks["lab_field_export_matches_solver_input"] = _lab_field_export_matches_solver_input(result)
 
     if result.dimension() != 2:
         checks["two_level_auxiliary_checks"] = "skipped_for_dimension_not_equal_to_2"

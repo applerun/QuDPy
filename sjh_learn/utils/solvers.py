@@ -10,6 +10,7 @@ from qutip import Qobj, mesolve
 from .checks import evaluate_sanity_checks
 from .fields.solver_inputs import (
     CodeCarrierField,
+    CodeCompositeField,
     CodeConstantDrive,
     CodeGaussianCarrierField,
     CodeGaussianDrive,
@@ -116,16 +117,24 @@ def _basic_sanity_checks(result: DynamicsResult) -> dict[str, object]:
     }
 
 
-def run_lab_case(parameters: NLevelSolverParams, rho0: Qobj | None = None) -> DynamicsResult:
+def run_lab_case(
+    parameters: NLevelSolverParams,
+    rho0: Qobj | None = None,
+    *,
+    physical_params: NLevelPhysicalParams | None = None,
+    solver_params: SolverParams | None = None,
+) -> DynamicsResult:
     times, states = simulate_lab_frame(parameters, rho0=rho0)
     fields = parameter_fields(parameters)
-    drive = fields[0] if len(fields) == 1 else None
+    drive = fields[0] if len(fields) == 1 else CodeCompositeField(fields=fields)
     result = DynamicsResult(
         mode="lab_exact",
         times=times,
         times_fs=parameters.times_fs,
         states=states,
         parameters=parameters,
+        physical_params=physical_params,
+        solver_params=solver_params,
         metadata={"energies_code": parameters.energies},
         drive=drive,
         drive_dict=drive.to_dict() if drive is not None and hasattr(drive, "to_dict") else None,
@@ -242,11 +251,7 @@ def run_physical_case(
     local_normalizer = ParaNormalizer() if normalizer is None else normalizer
     solver = local_normalizer.normalize(physical_params)
     parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=local_normalizer)
-    result = run_lab_case(parameters)
-    result.physical_params = physical_params
-    result.solver_params = solver
-    result.sanity_checks = evaluate_sanity_checks(result)
-    return result
+    return run_lab_case(parameters, physical_params=physical_params, solver_params=solver)
 
 
 def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:

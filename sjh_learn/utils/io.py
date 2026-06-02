@@ -519,6 +519,7 @@ def save_result_data(
     *,
     save_npz: bool = True,
     save_csv: bool = True,
+    save_populations_csv: bool = True,
     save_json: bool = True,
     save_human_meta: bool = True,
     save_debug_meta: bool = True,
@@ -541,9 +542,10 @@ def save_result_data(
         result.components_dataframe().to_csv(components_path, index=False)
         written["components_csv"] = components_path
 
-        populations_path = output / "populations.csv"
-        result.populations_dataframe().to_csv(populations_path, index=False)
-        written["populations_csv"] = populations_path
+        if save_populations_csv:
+            populations_path = output / "populations.csv"
+            result.populations_dataframe().to_csv(populations_path, index=False)
+            written["populations_csv"] = populations_path
 
         if selected_elements:
             selected_path = output / "selected_elements.csv"
@@ -597,6 +599,7 @@ def save_result_case(
     full_dpi: int = 300,
     save_npz: bool = True,
     save_csv: bool = True,
+    save_populations_csv: bool = True,
     save_json: bool = True,
     save_human_meta: bool = True,
     save_debug_meta: bool = True,
@@ -621,6 +624,7 @@ def save_result_case(
                 data_dir,
                 save_npz=save_npz,
                 save_csv=save_csv,
+                save_populations_csv=save_populations_csv,
                 save_json=False,
                 selected_elements=selected_elements,
             )

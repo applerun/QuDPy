@@ -175,23 +175,39 @@ class DynamicsResult:
         *,
         times_fs: np.ndarray | None = None,
     ) -> np.ndarray | None:
-        if self.mode != "lab_exact" or self.physical_params is None or self.solver_params is None:
+        if self.mode != "lab_exact" or self.physical_params is None or self.drive is None:
             return None
+        if times is None:
+            if times_fs is None:
+                sample_times_code = np.asarray(self.times, dtype=float)
+            else:
+                if self.solver_params is None:
+                    raise ValueError("solver_params is required to convert times_fs to solver code time.")
+                sample_times_code = np.asarray(times_fs, dtype=float) / float(self.solver_params.time_scale_fs)
+        else:
+            sample_times_code = np.asarray(times, dtype=float)
         if times_fs is None:
             if times is None:
                 if self.times_fs is None:
-                    return None
-                sample_times_fs = np.asarray(self.times_fs, dtype=float)
-            elif self.times_fs is not None and len(times) == len(self.times_fs):
-                sample_times_fs = np.asarray(self.times_fs, dtype=float)
+                    sample_times_fs = sample_times_code
+                else:
+                    sample_times_fs = np.asarray(self.times_fs, dtype=float)
+                    if sample_times_fs.shape != sample_times_code.shape:
+                        raise ValueError("times and times_fs shapes do not match.")
+            elif self.solver_params is not None:
+                sample_times_fs = sample_times_code * float(self.solver_params.time_scale_fs)
             else:
-                return None
+                sample_times_fs = sample_times_code
         else:
             sample_times_fs = np.asarray(times_fs, dtype=float)
-        phase = float(getattr(self.drive, "phase", 0.0)) if self.drive is not None else 0.0
-        return 2.0 * float(self.physical_params.field_MV_per_cm) * np.cos(
-            float(self.solver_params.omega_L_fs_inv) * sample_times_fs + phase
-        )
+            if sample_times_fs.shape != sample_times_code.shape:
+                raise ValueError("times and times_fs shapes do not match.")
+        if np.asarray(sample_times_fs).shape != np.asarray(sample_times_code).shape:
+            raise ValueError("times and times_fs shapes do not match.")
+        # 输出层必须复用 solver 实际使用的 lab-frame field callable，避免展示/分析
+        # 重新拼写物理场函数后与 Hamiltonian 输入脱节。drive(times_code) 是无量纲
+        # solver 电场形状，乘以 field_MV_per_cm 得到物理单位 MV/cm。
+        return np.asarray(self.drive(sample_times_code), dtype=float) * float(self.physical_params.field_MV_per_cm)
 
     def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         return self.drive_code_values(times)

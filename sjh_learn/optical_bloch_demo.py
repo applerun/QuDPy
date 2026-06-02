@@ -76,9 +76,7 @@ def run_one_physical_point(physical_params: NLevelPhysicalParams):
     solver = NORMALIZER.normalize(physical_params)
     parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=NORMALIZER)
 
-    lab = run_lab_case(parameters)
-    lab.physical_params = physical_params
-    lab.solver_params = solver
+    lab = run_lab_case(parameters, physical_params=physical_params, solver_params=solver)
 
     rotating = make_rotating_view(lab)
 
