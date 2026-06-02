@@ -13,15 +13,15 @@ import numpy as np
 from qutip import Qobj, mesolve
 
 from .fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
-from .model import (
+from sjh_learn.utils.core.model import (
     build_c_ops,
     build_lab_hamiltonian,
     coherent_superposition_density_matrix,
     excited_density_matrix,
     initial_density_matrix,
 )
-from .parameters import NLevelSolverParams
-from .results import DynamicsResult
+from sjh_learn.utils.core.parameters import NLevelSolverParams
+from sjh_learn.utils.core.results import DynamicsResult
 
 
 def _default_tlist(parameters: NLevelSolverParams) -> np.ndarray:
@@ -224,8 +224,8 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
     if physical_params.dimension != 2:
         raise ValueError("n2_mainline_equivalence_check requires an N=2 physical system.")
 
-    from .normalization import ParaNormalizer
-    from .solvers import optical_params_from_solver, run_lab_case, run_physical_case
+    from sjh_learn.utils.core.normalization import ParaNormalizer
+    from sjh_learn.utils.core.solvers import optical_params_from_solver, run_lab_case, run_physical_case
 
     local_normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False) if normalizer is None else normalizer
     wrapped = run_physical_case(physical_params, normalizer=local_normalizer)

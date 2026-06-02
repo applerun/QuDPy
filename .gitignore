@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .tmp_pycache_compile/
+.tmp_pycache_compile*/
 
 .idea/
 

@@ -17,15 +17,17 @@ import numpy as np
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sjh_learn.utils import (
+from sjh_learn.utils.core import (
     NLevelPhysicalParams,
     ParaNormalizer,
-    QuantumResultIO,
     RelaxationChannel,
-    plot_multilevel_components,
     run_physical_case,
+)
+from sjh_learn.utils.io import (
+    QuantumResultIO,
     save_figure,
 )
+from sjh_learn.utils.plotting import plot_multilevel_components
 
 
 OUTPUT_PATH = Path(__file__).resolve().parent / "optical_bloch_plots" / "multilevel_demo.png"

@@ -7,18 +7,18 @@ from dataclasses import replace
 import numpy as np
 from qutip import Qobj, mesolve
 
-from .checks import evaluate_sanity_checks
-from .fields.solver_inputs import (
+from sjh_learn.utils.checks import evaluate_sanity_checks
+from sjh_learn.utils.fields.solver_inputs import (
     CodeCarrierField,
     CodeCompositeField,
     CodeConstantDrive,
     CodeGaussianCarrierField,
     CodeGaussianDrive,
 )
-from .model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_fields
-from .normalization import ParaNormalizer
-from .parameters import NLevelPhysicalParams, NLevelSolverParams, ParameterSweep, PhysicalParameterSweep, SolverParams
-from .results import DynamicsResult
+from sjh_learn.utils.core.model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_fields
+from sjh_learn.utils.core.normalization import ParaNormalizer
+from sjh_learn.utils.core.parameters import NLevelPhysicalParams, NLevelSolverParams, ParameterSweep, PhysicalParameterSweep, SolverParams
+from sjh_learn.utils.core.results import DynamicsResult
 
 
 def _default_tlist(parameters: NLevelSolverParams) -> np.ndarray:

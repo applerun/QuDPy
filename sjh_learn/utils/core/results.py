@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
+from pathlib import Path
+import pickle
 from typing import Any
 
 import numpy as np
 from qutip import Qobj
 
-from .observables import dipole_expectation_D
-from .parameters import NLevelPhysicalParams, SolverParams
+from sjh_learn.utils.core.parameters import NLevelPhysicalParams, SolverParams
 
 
 def _require_pandas():
@@ -67,14 +68,6 @@ def _phase_with_mask(values: np.ndarray, *, threshold: float = 1e-8) -> tuple[np
     phase[mask] = np.nan
     phase_unwrapped[mask] = np.nan
     return phase, phase_unwrapped
-
-
-def _dipole_observable_label(mode: str) -> str | None:
-    if mode == "lab_exact":
-        return "dipole_expectation_lab_D"
-    if mode in {"rwa", "rotating_view"}:
-        return "dipole_expectation_envelope_D"
-    return None
 
 
 def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
@@ -137,6 +130,48 @@ class DynamicsResult:
 
     def density_array(self) -> np.ndarray:
         return np.stack([state.full() for state in self.states], axis=0)
+
+    def save_ckp(self, file: str | Path) -> Path:
+        """保存当前 `DynamicsResult` checkpoint。
+
+        `.ckp` 文件用于分析层或后处理重新载入完整轨迹，包含 density matrix
+        trajectory、时间轴、物理参数、solver 参数和 metadata。它是内部
+        checkpoint / 后处理缓存，不保证跨版本长期稳定；不要把它当作替代
+        `density.npz`、`components.csv`、`meta.json`、`debug_meta.json` 的归档
+        格式。
+        """
+
+        path = Path(file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as handle:
+            pickle.dump(self, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        return path
+
+    @classmethod
+    def from_ckp(cls, file: str | Path) -> "DynamicsResult":
+        """从 `.ckp` checkpoint 文件读取 `DynamicsResult`。
+
+        该方法只负责反序列化已经完成的模拟结果，不调用 solver，也不改变结果
+        主架构。`.ckp` 使用 pickle，因此不要加载不可信来源的文件。若文件
+        不存在、对象类型不对或必要字段缺失，会直接抛出清晰错误。
+        """
+
+        path = Path(file)
+        if not path.exists():
+            raise FileNotFoundError(path)
+        with path.open("rb") as handle:
+            payload = pickle.load(handle)
+        if not isinstance(payload, cls):
+            raise TypeError("checkpoint does not contain a DynamicsResult.")
+        required = ("mode", "times", "states", "parameters")
+        for name in required:
+            if not hasattr(payload, name):
+                raise AttributeError(f"checkpoint DynamicsResult is missing required field: {name}")
+        if payload.times is None or len(payload.times) == 0:
+            raise ValueError("checkpoint DynamicsResult has an empty time axis.")
+        if payload.states is None or len(payload.states) == 0:
+            raise ValueError("checkpoint DynamicsResult has no states.")
+        return payload
 
     def dimension(self) -> int:
         return int(self.density_array().shape[1])
@@ -211,11 +246,6 @@ class DynamicsResult:
 
     def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         return self.drive_code_values(times)
-
-    def dipole_expectation_D(self) -> np.ndarray | None:
-        if self.physical_params is None:
-            return None
-        return dipole_expectation_D(self.density_array(), self.physical_params.dipole_matrix_D)
 
     def max_trace_error(self) -> float:
         density = self.density_array()
@@ -306,17 +336,6 @@ class DynamicsResult:
             data["field_MV_per_cm"] = field_MV_per_cm
         return data
 
-    def _add_observable_columns(self, data: dict[str, Any]) -> dict[str, Any]:
-        label = _dipole_observable_label(self.mode)
-        dipole = self.dipole_expectation_D()
-        if label is None or dipole is None:
-            return data
-        # RWA 和 rotating_view 中的 dipole 是慢变量 envelope，不是完整 lab-frame polarization。
-        data[f"Re_{label}"] = dipole.real
-        data[f"Im_{label}"] = dipole.imag
-        data[f"abs_{label}"] = np.abs(dipole)
-        return data
-
     def components_dataframe(self):
         pd = _require_pandas()
         density = self.density_array()
@@ -334,7 +353,6 @@ class DynamicsResult:
             data[f"phase_{label}"] = phase
             data[f"phase_{label}_unwrapped"] = phase_unwrapped
         self._add_drive_columns(data)
-        self._add_observable_columns(data)
         return pd.DataFrame(data)
 
     def populations_dataframe(self):

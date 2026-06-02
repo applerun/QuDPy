@@ -17,23 +17,25 @@ import matplotlib.pyplot as plt
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sjh_learn.utils import (
+from sjh_learn.utils.core import (
     NLevelPhysicalParams,
     ParaNormalizer,
     PhysicalParameterSweep,
     PureDephasingChannel,
-    QuantumResultIO,
     RelaxationChannel,
-    default_output_path,
     make_rotating_view,
     optical_params_from_solver,
-    plot_density_components,
     run_lab_case,
     run_rwa_case,
+)
+from sjh_learn.utils.io import (
+    QuantumResultIO,
+    default_output_path,
     save_figure,
     save_parameter_summary,
     save_results_components_long,
 )
+from sjh_learn.utils.plotting import plot_density_components
 
 
 BASE_PHYSICAL_PARAMS = NLevelPhysicalParams(

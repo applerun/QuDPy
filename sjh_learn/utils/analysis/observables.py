@@ -1,4 +1,8 @@
-"""谱学 observable 的物理单位工具。"""
+"""analysis 层的谱学 observable 工具。
+
+这些函数只从已经求解完成的 density matrix trajectory 和物理参数计算后处理量；
+它们不属于 solver/core，也不应被 `DynamicsResult` 用来自动追加物理 observable。
+"""
 
 from __future__ import annotations
 
@@ -21,16 +25,18 @@ def _as_density_trajectory(rho_t) -> np.ndarray:
 def _as_dipole_matrix(dipole_matrix_D, dimension: int) -> np.ndarray:
     mu = np.asarray(dipole_matrix_D, dtype=np.complex128)
     if mu.shape != (dimension, dimension):
-        raise ValueError("dipole_matrix_D 必须是 shape=(N, N)，并与 rho_t 的 N 一致。")
+        raise ValueError("dipole_matrix_D 必须是 shape=(N, N)，并且与 rho_t 的 N 一致。")
     return mu
 
 
 def dipole_expectation_D(rho_t, dipole_matrix_D) -> np.ndarray:
-    """计算单个量子系统的偶极矩期望值，单位 Debye。
+    """计算单个量子体系的偶极矩期望值，单位 Debye。
 
-    物理约定：`p(t) = Tr[rho(t) mu] = sum_ij rho_ij(t) mu_ji`。
-    这里必须使用用户侧物理偶极矩 `dipole_matrix_D`，不能使用已经乘过场强
-    和归一化因子的 `coupling_matrix_code`。
+    物理约定为 `p(t) = Tr[rho(t) mu] = sum_ij rho_ij(t) mu_ji`。实现使用
+    `np.einsum("tij,ji->t", rho_t, dipole_matrix_D)`，避免逐时间点构造
+    `rho @ mu` 的中间矩阵。这里必须使用用户侧物理偶极矩矩阵
+    `dipole_matrix_D`，不能使用已经乘过场强和 code-unit 归一化因子的
+    `coupling_matrix_code`。
     """
 
     rho = _as_density_trajectory(rho_t)
@@ -41,8 +47,8 @@ def dipole_expectation_D(rho_t, dipole_matrix_D) -> np.ndarray:
 def polarization_C_per_m2(rho_t, dipole_matrix_D, number_density_m3: float) -> np.ndarray:
     """计算宏观 polarization，单位 C/m^2。
 
-    `number_density_m3` 的单位是 `m^-3`。单分子偶极矩先由 Debye 转为
-    `C*m`，再乘 number density，得到 `P(t)` 的 `C/m^2`。
+    `number_density_m3` 的单位是 `m^-3`，必须显式给出。单体系偶极矩先由
+    Debye 转换为 `C*m`，再乘以 number density，得到 `P(t)` 的 `C/m^2`。
     """
 
     density = float(number_density_m3)
@@ -59,12 +65,11 @@ def chi_two_level_linear(
     number_density_m3: float,
     population_difference: float = 1.0,
 ) -> np.ndarray:
-    """二能级线性响应 susceptibility 参考公式。
+    """two-level analytic linear-response susceptibility 教学参考公式。
 
-    输入角频率使用 `fs^-1`，函数内部转换到 `s^-1`。`mu_ge_D` 使用 Debye，
-    内部转换为 `C*m`。这里的公式是
-    `chi = N |mu|^2 / (epsilon0 hbar) * population_difference
-    / (omega_eg - omega - 1j gamma2)`。
+    这是 analysis 层的 analytic/teaching helper，不是 core two-level API，也不是
+    `DynamicsResult` 的一部分。输入角频率使用 `fs^-1`，函数内部转换到 `s^-1`；
+    `mu_ge_D` 使用 Debye，并转换为 `C*m`。
     """
 
     omega_s_inv = np.asarray(omega_fs_inv, dtype=float) * FS_INV_TO_S_INV
@@ -83,6 +88,9 @@ def chi_two_level_linear(
 
 __all__ = [
     "DEBYE_TO_C_M",
+    "EPSILON0_F_PER_M",
+    "FS_INV_TO_S_INV",
+    "HBAR_J_S",
     "dipole_expectation_D",
     "polarization_C_per_m2",
     "chi_two_level_linear",

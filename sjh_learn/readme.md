@@ -71,7 +71,7 @@ density matrix、population、coherence 都是无量纲量。CSV 中主时间轴
 
 ## Spectroscopy Observables
 
-`utils/observables.py` 提供第一层谱学 observable：
+`utils/analysis/observables.py` 提供第一层谱学 observable，属于 analysis 层：
 
 - `dipole_expectation_D(rho_t, dipole_matrix_D)` 计算 `p(t)=Tr[rho(t) mu]`，单位 Debye。
 - `polarization_C_per_m2(rho_t, dipole_matrix_D, number_density_m3)` 计算 `P(t)=N p(t)`，单位 `C/m^2`，其中 `number_density_m3` 的单位是 `m^-3`。
@@ -79,7 +79,7 @@ density matrix、population、coherence 都是无量纲量。CSV 中主时间轴
 
 迹的指标约定是 `Tr(rho mu)=sum_ij rho_ij mu_ji`，代码使用 `np.einsum("tij,ji->t", rho_t, mu)`。这里必须使用物理输入 `dipole_matrix_D`，不能使用已经包含光场强度和 code-unit 归一化的 `coupling_matrix_code`。
 
-导出 `components.csv` 时，如果 result 携带 `physical_params.dipole_matrix_D`，会追加 dipole expectation 的 real / imag / abs 列。`lab_exact` 写作 `dipole_expectation_lab_D`；`rwa` 和 `rotating_view` 写作 `dipole_expectation_envelope_D`，表示慢变量 envelope，不等同于完整 lab-frame polarization。
+`DynamicsResult.components_dataframe()` 和 simulation 输出的 `components.csv` 只保存 density matrix、population、coherence 以及输入 drive/field 相关列；dipole expectation、polarization、FFT response 和吸收功相关量只在 analysis 层输出，例如 `analysis_components.csv` 和 `fft_response.csv`。
 
 ## 绘图和 IO
 
@@ -187,6 +187,18 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
+
+## Dynamics Analysis
+
+- `DynamicsResult.save_ckp(path)` 可以把一次模拟得到的完整 result 保存为 `.ckp` checkpoint；`DynamicsResult.from_ckp(path)` 可以从 checkpoint 重新加载 result。`.ckp` 是内部 checkpoint / 后处理缓存，不保证跨版本长期稳定，不应加载不可信来源文件，也不是替代 `density.npz`、`components.csv`、`meta.json`、`debug_meta.json` 的归档格式。
+- `utils/analysis/DynamicsAnalysis` 是 analysis 层对象，可由 `DynamicsAnalysis.from_dynamics_res(result)` 或 `DynamicsAnalysis.from_ckp(path)` 创建。
+- analysis 层只读取 `DynamicsResult` 的公开 API，不调用 solver，也不使用 solver-internal code-unit 输入。
+- analysis 默认使用通用 N-level polarization：`P(t)=number_density_m3 * Tr[rho(t) mu_D] * DEBYE_TO_C_M`，其中 `mu_D` 来自 `physical_params.dipole_matrix_D`，`number_density_m3` 必须显式传入。
+- `Tr[rho(t) mu_D]` 的实现使用 `np.einsum("tij,ji->t", rho_t, dipole_matrix_D)`；若物理偶极矩期望值的虚部超过容差，analysis 会直接报错，不会静默丢弃。
+- 常见 two-level 0-1 近似公式 `P(t)=2 n mu_01 Re[rho_01(t)]` 只作为文档说明保留；analysis API 不提供 two-level 专用 polarization 函数，避免误用于 N-level 体系。
+- `rho_over_E = fft_rho12 / fft_E` 是 coherence response-like quantity，不是 `chi` 或 absorption。`P_over_E = P_fft / fft_E` 和 `omega_Im_P_over_E` 更接近 polarization response / 吸收功方向的分析量，但仍依赖 Fourier convention 和线性响应条件。
+- 频域 CSV 同时保存 `frequency_fs_inv`、`angular_frequency_fs_inv` 和 `energy_eV`；时域 CSV 保存为 `analysis_components.csv`，避免和 simulation output 的 `components.csv` 混淆。
+- 默认分析输出目录是 `outputs/analysis/<example_name>/<case_name>/`，包含 `analysis_components.csv`、`fft_response.csv`、`figs/polarization_time.png`、`figs/fft_response.png` 和 `analysis_metadata.json`。
 
 ## Multi-Level Result Export
 

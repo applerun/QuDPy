@@ -14,7 +14,8 @@ from sjh_learn.examples.cw_input.rwa_common import (
     Tphi_fs_of,
     with_dissipation,
 )
-from sjh_learn.utils import NLevelPhysicalParams, save_results_components_long
+from sjh_learn.utils.core import NLevelPhysicalParams
+from sjh_learn.utils.io import save_results_components_long
 
 
 def make_base_gaussian_physical_params() -> NLevelPhysicalParams:

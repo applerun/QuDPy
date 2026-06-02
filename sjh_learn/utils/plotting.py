@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
-from .results import DynamicsResult
+from sjh_learn.utils.core.results import DynamicsResult
 
 
 def _plasma_colors(count: int, *, start: float = 0.18, end: float = 0.88):

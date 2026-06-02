@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from ..normalization import ParaNormalizer
+from sjh_learn.utils.core.normalization import ParaNormalizer
 from .lab_fields import CarrierFieldPhysical, GaussianCarrierFieldPhysical
 
 

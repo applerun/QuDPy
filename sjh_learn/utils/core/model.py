@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 from qutip import Qobj, basis
 
-from .fields import FieldConfig, total_electric_field_value
-from .fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
-from .parameters import NLevelSolverParams, as_complex_matrix
+from sjh_learn.utils.fields import FieldConfig, total_electric_field_value
+from sjh_learn.utils.fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
+from sjh_learn.utils.core.parameters import NLevelSolverParams, as_complex_matrix
 
 
 def electric_field(times: np.ndarray, amplitude: float, omega_drive: float) -> np.ndarray:

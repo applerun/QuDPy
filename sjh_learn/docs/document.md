@@ -164,13 +164,13 @@ case_dir/
 └─ meta.json
 ```
 
-`meta.json` 包含 mode、`physical_params`、`solver_params_fs_inv`、`solver_params_code`、`drive_dict`、`drive_expr`、trace error 和 Hermiticity error。`components.csv` 现在是 dimension-aware：输出 `time_fs`、所有 diagonal populations（例如 `rho_00`）、所有 upper-triangular coherences（例如 `Re_rho_01`、`Im_rho_01`、`abs_rho_01`、`phase_rho_01`），并在可用时输出 `drive_code`、`drive_fs_inv`、`field_MV_per_cm` 和 dipole expectation observable。
+`meta.json` 包含 mode、`physical_params`、`solver_params_fs_inv`、`solver_params_code`、`drive_dict`、`drive_expr`、trace error 和 Hermiticity error。`components.csv` 现在是 dimension-aware：输出 `time_fs`、所有 diagonal populations（例如 `rho_00`）、所有 upper-triangular coherences（例如 `Re_rho_01`、`Im_rho_01`、`abs_rho_01`、`phase_rho_01`），并在可用时输出 `drive_code`、`drive_fs_inv`、`field_MV_per_cm`。dipole expectation、polarization、FFT response 和吸收功相关量只由 analysis 层输出。
 
 density matrix、population、coherence 都是无量纲量；时间轴优先保存真实 fs。
 
 ## Spectroscopy Observables
 
-第一层谱学 observable 放在 `utils/observables.py`，仍然从 `DynamicsResult` 的 density matrix trajectory 派生，不改变 solver/result 架构。
+第一层谱学 observable 放在 `utils/analysis/observables.py`，属于 analysis 层；它们从 `DynamicsResult` 的 density matrix trajectory 派生，不改变 solver/result 架构。
 
 - `dipole_expectation_D(rho_t, dipole_matrix_D)`：计算 `p(t)=Tr[rho(t) mu]`，单位 Debye。
 - `polarization_C_per_m2(rho_t, dipole_matrix_D, number_density_m3)`：计算可选宏观 polarization，单位 `C/m^2`；`number_density_m3` 的单位是 `m^-3`。
@@ -178,7 +178,7 @@ density matrix、population、coherence 都是无量纲量；时间轴优先保�
 
 矩阵指标约定为 `Tr(rho mu)=sum_ij rho_ij mu_ji`，实现使用 `np.einsum("tij,ji->t", rho_t, mu)`。observable 必须使用用户侧物理偶极矩 `dipole_matrix_D`，不能使用 `coupling_matrix_code`，因为后者已经包含光场和 code-unit 归一化。
 
-`components.csv` 会在已有 density-matrix 列之后追加可选 observable 列：`lab_exact` 使用 `dipole_expectation_lab_D`；`rwa` 和 `rotating_view` 使用 `dipole_expectation_envelope_D`。RWA envelope 是旋转框架慢变量，不应称为完整 lab-frame polarization。
+simulation 输出的 `components.csv` 只保存 density matrix、population、coherence 以及输入 drive/field 相关列；dipole expectation、polarization、FFT response 和吸收功相关量只在 analysis 层输出，例如 `analysis_components.csv` 和 `fft_response.csv`。
 
 ## 顶层脚本
 
@@ -256,6 +256,18 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
+
+## Dynamics Analysis
+
+- `DynamicsResult.save_ckp(path)` 保存一次模拟的完整 checkpoint；`DynamicsResult.from_ckp(path)` 从 `.ckp` 文件恢复 result。`.ckp` 是内部 checkpoint / 后处理缓存，不保证跨版本长期稳定，不应加载不可信来源文件，也不是替代 `density.npz`、`components.csv`、`meta.json`、`debug_meta.json` 的归档格式。
+- `DynamicsAnalysis.from_dynamics_res(result)` 从内存 result 创建分析对象；`DynamicsAnalysis.from_ckp(path)` 从 checkpoint 创建分析对象。
+- analysis 层只依赖 `DynamicsResult` API，不调用 solver 内部 code-unit 输入，也不改变 solver/result 主架构。
+- analysis 默认使用通用 N-level polarization：`P(t)=number_density_m3 * Tr[rho(t) mu_D] * DEBYE_TO_C_M`，其中 `mu_D` 来自 `physical_params.dipole_matrix_D`，`number_density_m3` 必须显式传入。
+- `Tr[rho(t) mu_D]` 的实现使用 `np.einsum("tij,ji->t", rho_t, dipole_matrix_D)`；若物理偶极矩期望值的虚部超过容差，analysis 会直接报错，不会静默丢弃。
+- 常见 two-level 0-1 近似公式 `P(t)=2 n mu_01 Re[rho_01(t)]` 只作为文档说明保留；analysis API 不提供 two-level 专用 polarization 函数，避免误用于 N-level 体系。
+- `rho_over_E = fft_rho12 / fft_E` 是 coherence response-like quantity，不是 `chi` 或 absorption。`P_over_E = P_fft / fft_E` 和 `omega_Im_P_over_E` 更接近 polarization response / 吸收功方向的分析量，但仍依赖 Fourier convention 和线性响应条件。
+- `analysis_components.csv` 是增强时域表，保留 dimension-aware density columns，并增加 dipole / polarization 列；`fft_response.csv` 保存 `frequency_fs_inv`、`angular_frequency_fs_inv`、`energy_eV`、`fft_rho12`、`fft_E`、`rho_over_E`、`P_fft`、`P_over_E` 和 `omega_Im_P_over_E`。
+- `analysis_metadata.json` 记录 `example_name`、`case_name`、`input_field_class`、`physical_params`、`solver_params_fs_inv`、分析参数和输出文件路径。
 
 ## Multi-Level Compatibility Notes
 

@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from .parameters import NLevelPhysicalParams, PureDephasingChannel, RelaxationChannel, SolverParams
+from sjh_learn.utils.core.parameters import NLevelPhysicalParams, PureDephasingChannel, RelaxationChannel, SolverParams
 
 
 class ParaNormalizer:

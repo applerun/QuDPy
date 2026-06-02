@@ -9,13 +9,13 @@ import sys
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sjh_learn.utils import (
+from sjh_learn.utils.core import (
     NLevelPhysicalParams,
     ParaNormalizer,
     PureDephasingChannel,
     RelaxationChannel,
-    n2_mainline_equivalence_check,
 )
+from sjh_learn.utils.checks import n2_mainline_equivalence_check
 
 
 def make_physical_params() -> NLevelPhysicalParams:

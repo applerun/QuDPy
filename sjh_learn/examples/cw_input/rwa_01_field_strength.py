@@ -22,7 +22,7 @@ from sjh_learn.examples.cw_input.rwa_common import (
     save_case_result,
     save_results_csv,
 )
-from sjh_learn.utils import save_results_components_long
+from sjh_learn.utils.io import save_results_components_long
 
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / "rwa_01_field_strength"

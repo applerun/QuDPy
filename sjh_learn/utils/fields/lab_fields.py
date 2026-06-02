@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from ..normalization import ParaNormalizer
+from sjh_learn.utils.core.normalization import ParaNormalizer
 
 
 def _asarray_or_float(values):
