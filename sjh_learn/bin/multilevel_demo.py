@@ -2,7 +2,7 @@
 """最小 N=3 lab-frame 示例。
 
 这个脚本走正式主线：
-`NLevelPhysicalParams -> ParaNormalizer -> NLevelSolverParams -> run_physical_case`。
+`NLevelPhysicalParams -> ParaNormalizer -> run_case`。
 旧的 solver-ready multilevel 路径不再作为普通 multilevel 入口。
 """
 
@@ -21,7 +21,7 @@ from sjh_learn.utils.core import (
     NLevelPhysicalParams,
     ParaNormalizer,
     RelaxationChannel,
-    run_physical_case,
+    run_case,
 )
 from sjh_learn.utils.io import (
     QuantumResultIO,
@@ -77,7 +77,7 @@ def make_demo_params() -> NLevelPhysicalParams:
 def main() -> None:
     physical = make_demo_params()
     normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False)
-    result = run_physical_case(physical, normalizer=normalizer)
+    result = run_case(physical, normalizer=normalizer)
 
     fig, _axes = plot_multilevel_components(result, populations=None, coherences=[(0, 1), (1, 2)])
     save_figure(fig, OUTPUT_PATH, dpi=160)

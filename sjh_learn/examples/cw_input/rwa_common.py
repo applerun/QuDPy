@@ -14,9 +14,7 @@ from sjh_learn.utils.core import (
     PureDephasingChannel,
     RelaxationChannel,
     make_rotating_view,
-    optical_params_from_solver,
-    run_lab_case,
-    run_rwa_case,
+    run_case,
 )
 from sjh_learn.utils.io import (
     save_figure,
@@ -106,18 +104,13 @@ def make_condition_groups() -> dict[str, NLevelPhysicalParams]:
     }
 
 
-def run_rwa_case_from_physical_params(
+def run_rwa_physical_case(
     physical_params: NLevelPhysicalParams,
     *,
     normalizer: ParaNormalizer | None = None,
 ):
     local_normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False) if normalizer is None else normalizer
-    solver = local_normalizer.normalize(physical_params)
-    parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=local_normalizer)
-    result = run_rwa_case(parameters)
-    result.physical_params = physical_params
-    result.solver_params = solver
-    return result
+    return run_case(replace(physical_params, solver_mode="rwa"), normalizer=local_normalizer)
 
 
 def run_three_mode_cases_from_physical_params(
@@ -126,18 +119,9 @@ def run_three_mode_cases_from_physical_params(
     normalizer: ParaNormalizer | None = None,
 ):
     local_normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False) if normalizer is None else normalizer
-    solver = local_normalizer.normalize(physical_params)
-    parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=local_normalizer)
-
-    lab = run_lab_case(parameters)
-    lab.physical_params = physical_params
-    lab.solver_params = solver
-
+    lab = run_case(replace(physical_params, solver_mode="lab_exact"), normalizer=local_normalizer)
     rotating = make_rotating_view(lab)
-
-    rwa = run_rwa_case(parameters)
-    rwa.physical_params = physical_params
-    rwa.solver_params = solver
+    rwa = run_case(replace(physical_params, solver_mode="rwa"), normalizer=local_normalizer)
     return lab, rotating, rwa
 
 
@@ -250,7 +234,7 @@ def collect_summary_metrics(
     physical = result.physical_params
     solver = result.solver_params
     envelope = "gaussian" if physical.pulse_sigma_fs is not None else "constant"
-    drive_class = "GaussianRwaDrivePhysical" if envelope == "gaussian" else "ConstantRwaDrivePhysical"
+    drive_class = "gaussian_rwa_envelope" if envelope == "gaussian" else "constant_rwa_envelope"
     drive_expr = (
         f"g(t) = {solver.rabi_fs_inv:.6g} fs^-1"
         if envelope == "constant"
@@ -389,7 +373,7 @@ def run_example_group(
     rows = []
     for spec in case_specs:
         physical = with_dissipation(base_physical, T1_fs=spec.get("T1_fs"), Tphi_fs=spec.get("Tphi_fs"))
-        result = run_rwa_case_from_physical_params(physical)
+        result = run_rwa_physical_case(physical)
         case_name = build_case_name_from_T1_Tphi(
             prefix=case_name_prefix,
             field_MV_per_cm=physical.field_MV_per_cm,
@@ -493,7 +477,7 @@ __all__ = [
     "rho_01_phase_series",
     "run_example_group",
     "run_three_mode_cases_from_physical_params",
-    "run_rwa_case_from_physical_params",
+    "run_rwa_physical_case",
     "save_case_result",
     "save_group_outputs",
     "save_results_csv",

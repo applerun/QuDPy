@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, is_dataclass
 from pathlib import Path
 import pickle
 from typing import Any
@@ -27,8 +27,21 @@ def _complex_matrix_to_json(value: Any) -> list:
 
 
 def _json_safe(value: Any) -> Any:
+    if type(value).__name__ == "ParaNormalizer":
+        return {"class": "ParaNormalizer", "note": "runtime object omitted from JSON metadata"}
+    if type(value).__name__ == "NLevelPhysicalParams":
+        payload = {
+            item.name: getattr(value, item.name)
+            for item in dataclass_fields(value)
+            if item.name != "field"
+        }
+        field_value = getattr(value, "field", None)
+        payload["field"] = None if field_value is None else _json_safe(field_value)
+        return _json_safe(payload)
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _json_safe(value.to_dict())
     if is_dataclass(value):
-        return _json_safe(asdict(value))
+        return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
     if isinstance(value, Qobj):
         return {"qobj_shape": list(value.shape), "data": _complex_matrix_to_json(value.full())}
     if isinstance(value, np.ndarray):
@@ -39,6 +52,8 @@ def _json_safe(value: Any) -> Any:
         return value.item()
     if isinstance(value, complex):
         return {"real": float(value.real), "imag": float(value.imag)}
+    if callable(value):
+        return {"callable_serialized": False, "repr": repr(value)}
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -242,6 +257,8 @@ class DynamicsResult:
         # 输出层必须复用 solver 实际使用的 lab-frame field callable，避免展示/分析
         # 重新拼写物理场函数后与 Hamiltonian 输入脱节。drive(times_code) 是无量纲
         # solver 电场形状，乘以 field_MV_per_cm 得到物理单位 MV/cm。
+        if hasattr(self.drive, "physical"):
+            return np.asarray(self.drive.physical(sample_times_fs), dtype=float)
         return np.asarray(self.drive(sample_times_code), dtype=float) * float(self.physical_params.field_MV_per_cm)
 
     def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:

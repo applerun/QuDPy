@@ -217,26 +217,54 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
 
     这个检查替代旧的 solver-ready multilevel 对照路径：两边都走
     `NLevelPhysicalParams -> ParaNormalizer -> NLevelSolverParams -> model.py`
-    主线，只是一个使用 `run_physical_case`，另一个显式展开归一化与
-    `run_lab_case`。因此它用于防止主线封装层和底层求解层发生偏离。
+    主线，只是一个使用 `run_case`，另一个显式展开归一化与
+    `mesolve`。因此它用于防止主线封装层和底层求解层发生偏离。
     """
 
     if physical_params.dimension != 2:
         raise ValueError("n2_mainline_equivalence_check requires an N=2 physical system.")
 
     from sjh_learn.utils.core.normalization import ParaNormalizer
-    from sjh_learn.utils.core.solvers import optical_params_from_solver, run_lab_case, run_physical_case
+    from sjh_learn.utils.core.solvers import run_case
 
     local_normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False) if normalizer is None else normalizer
-    wrapped = run_physical_case(physical_params, normalizer=local_normalizer)
+    wrapped = run_case(replace(physical_params, solver_mode="lab_exact"), normalizer=local_normalizer)
 
     solver = local_normalizer.normalize(physical_params)
-    explicit_params = optical_params_from_solver(
-        solver=solver,
-        physical=physical_params,
-        normalizer=local_normalizer,
+    explicit_params = NLevelSolverParams(
+        t_start=solver.t_start,
+        t_end=solver.t_end,
+        dt=solver.dt,
+        t_final=solver.t_end,
+        hbar=1.0,
+        energies=tuple(float(value) for value in solver.energies_code),
+        dipole_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
+        coupling_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
+        omega_drive=solver.omega_L,
+        relaxation_channels=solver.relaxation_channels_code,
+        pure_dephasing_channels=solver.pure_dephasing_channels_code,
+        detuning=solver.detuning,
+        pulse_center=solver.pulse_center,
+        pulse_sigma=solver.pulse_sigma,
+        fields=None,
+        tlist=solver.tlist,
+        times_fs=local_normalizer.denormalize_time_array(solver.tlist, solver),
+        basis=physical_params.basis,
     )
-    explicit = run_lab_case(explicit_params)
+    explicit_times, explicit_states = _simulate_lab_for_check(
+        explicit_params,
+        initial_density_matrix(len(explicit_params.energies)),
+        1.0,
+    )
+    explicit = DynamicsResult(
+        mode="lab_exact",
+        times=explicit_times,
+        times_fs=explicit_params.times_fs,
+        states=explicit_states,
+        parameters=explicit_params,
+        physical_params=physical_params,
+        solver_params=solver,
+    )
 
     density_wrapped = wrapped.density_array()
     density_explicit = explicit.density_array()

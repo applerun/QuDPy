@@ -23,7 +23,8 @@ from sjh_learn.examples.gau_pulse.pulse_common import (
     make_base_gaussian_physical_params,
     pulse_summary_metrics,
 )
-from sjh_learn.utils import GaussianCarrierFieldPhysical, NLevelPhysicalParams, ParaNormalizer, run_physical_case
+from sjh_learn.utils.core import NLevelPhysicalParams, ParaNormalizer, run_case
+from sjh_learn.utils.fields import FieldPhyRoot, GaussianCarrierFieldPhysical
 
 
 HBAR_EV_FS = 0.6582119569
@@ -44,7 +45,7 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def make_lab_gaussian_field(physical: NLevelPhysicalParams) -> GaussianCarrierFieldPhysical:
+def make_lab_gaussian_field(physical: NLevelPhysicalParams) -> FieldPhyRoot:
     """从同一个 physical 参数生成 lab-frame Gaussian carrier field。
 
     这里的公式与 lab-frame exact solver 的物理约定一致：
@@ -56,9 +57,9 @@ def make_lab_gaussian_field(physical: NLevelPhysicalParams) -> GaussianCarrierFi
         raise ValueError("lab Gaussian pulse example requires pulse_center_fs and pulse_sigma_fs.")
     return GaussianCarrierFieldPhysical(
         E0_MV_per_cm=physical.field_MV_per_cm,
-        pulse_center_fs=physical.pulse_center_fs,
-        pulse_sigma_fs=physical.pulse_sigma_fs,
-        laser_energy_eV=physical.laser_energy_eV,
+        omega_L_fs_inv=float(ParaNormalizer.energy_eV_to_fs_inv(physical.laser_energy_eV)),
+        center_fs=physical.pulse_center_fs,
+        sigma_fs=physical.pulse_sigma_fs,
         phase_rad=0.0,
     )
 
@@ -294,7 +295,7 @@ def run_lab_pulse_case(
     apply_window: bool = True,
 ):
     normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False)
-    result = run_physical_case(physical, normalizer=normalizer)
+    result = run_case(physical, normalizer=normalizer)
     saved = save_case_result(
         result,
         output_dir,

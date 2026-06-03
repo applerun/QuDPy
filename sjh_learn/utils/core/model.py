@@ -5,8 +5,9 @@ from __future__ import annotations
 import numpy as np
 from qutip import Qobj, basis
 
-from sjh_learn.utils.fields import FieldConfig, total_electric_field_value
-from sjh_learn.utils.fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
+from typing import Any
+
+from sjh_learn.utils.fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField, total_electric_field_value
 from sjh_learn.utils.core.parameters import NLevelSolverParams, as_complex_matrix
 
 
@@ -75,7 +76,7 @@ def default_field_config(parameters: NLevelSolverParams):
     )
 
 
-def parameter_fields(parameters: NLevelSolverParams) -> tuple[FieldConfig, ...]:
+def parameter_fields(parameters: NLevelSolverParams) -> tuple[Any, ...]:
     if parameters.fields is not None:
         return tuple(parameters.fields)
     return (default_field_config(parameters),)

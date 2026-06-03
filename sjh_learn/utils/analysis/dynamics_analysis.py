@@ -7,7 +7,7 @@ solver/result 主架构。
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, is_dataclass
 import json
 from pathlib import Path
 from typing import Any
@@ -28,8 +28,21 @@ def _require_pandas():
 
 
 def _json_safe(value: Any) -> Any:
+    if type(value).__name__ == "ParaNormalizer":
+        return {"class": "ParaNormalizer", "note": "runtime object omitted from JSON metadata"}
+    if type(value).__name__ == "NLevelPhysicalParams":
+        payload = {
+            item.name: getattr(value, item.name)
+            for item in dataclass_fields(value)
+            if item.name != "field"
+        }
+        field_value = getattr(value, "field", None)
+        payload["field"] = None if field_value is None else _json_safe(field_value)
+        return _json_safe(payload)
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _json_safe(value.to_dict())
     if is_dataclass(value):
-        return _json_safe(asdict(value))
+        return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
     if isinstance(value, np.ndarray):
         if np.iscomplexobj(value):
             return [{"real": float(item.real), "imag": float(item.imag)} for item in value.ravel()]
@@ -476,7 +489,9 @@ class DynamicsAnalysis:
             return None
         envelope = "gaussian" if physical.pulse_sigma_fs is not None else "constant"
         if self.result.mode == "rwa":
-            return "GaussianRwaDrivePhysical" if envelope == "gaussian" else "ConstantRwaDrivePhysical"
+            return "gaussian_rwa_envelope" if envelope == "gaussian" else "constant_rwa_envelope"
+        if getattr(physical, "field", None) is not None:
+            return physical.field.__class__.__name__
         return "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical"
 
     def save_outputs(

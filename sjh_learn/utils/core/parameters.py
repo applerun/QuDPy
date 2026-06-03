@@ -8,9 +8,12 @@ QuTiP。用户侧物理系统使用 `NLevelPhysicalParams`；solver 内部参数
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from sjh_learn.utils.fields import FieldPhyRoot
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,11 @@ class NLevelPhysicalParams:
     pure_dephasing_channels: tuple[PureDephasingChannel, ...] = ()
     pulse_center_fs: float | None = None
     pulse_sigma_fs: float | None = None
+    solver_mode: str = "lab_exact"
+    field: FieldPhyRoot | None = None
+    # 用户自定义输入说明，仅用于 meta.json / debug_meta.json 记录，不参与归一化或求解。
+    input_description: str | None = None
+    input_metadata: dict[str, Any] | None = None
 
     @property
     def dimension(self) -> int:

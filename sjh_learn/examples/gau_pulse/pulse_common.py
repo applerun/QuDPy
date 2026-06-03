@@ -7,7 +7,7 @@ from sjh_learn.examples.cw_input.rwa_common import (
     collect_summary_metrics,
     make_n2_physical_params,
     plot_rwa_comparison,
-    run_rwa_case_from_physical_params,
+    run_rwa_physical_case,
     save_case_result,
     save_results_csv,
     T1_fs_of,
@@ -98,7 +98,7 @@ def run_pulse_case(
     output_dir: str | Path,
     preview: bool = True,
 ):
-    result = run_rwa_case_from_physical_params(physical)
+    result = run_rwa_physical_case(physical)
     save_case_result(
         result,
         output_dir,

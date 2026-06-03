@@ -13,7 +13,6 @@ from .lab_fields import (
     CodeCarrierField,
     CodeCompositeField,
     CodeGaussianCarrierField,
-    FieldConfig,
     electric_field_array,
     electric_field_value,
     envelope_value,
@@ -29,12 +28,6 @@ _SOLVER_INPUT_REGISTRY = {
     "CodeCarrierField": CodeCarrierField,
     "CodeGaussianCarrierField": CodeGaussianCarrierField,
     "CodeCompositeField": CodeCompositeField,
-    # Legacy debug metadata names.
-    "ConstantDrive": CodeConstantDrive,
-    "GaussianDrive": CodeGaussianDrive,
-    "CarrierField": CodeCarrierField,
-    "GaussianCarrierField": CodeGaussianCarrierField,
-    "CompositeField": CodeCompositeField,
 }
 
 
@@ -52,7 +45,6 @@ __all__ = [
     "CodeCarrierField",
     "CodeGaussianCarrierField",
     "CodeCompositeField",
-    "FieldConfig",
     "solver_input_from_dict",
     "envelope_value",
     "electric_field_value",

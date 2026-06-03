@@ -24,9 +24,7 @@ from sjh_learn.utils.core import (
     PureDephasingChannel,
     RelaxationChannel,
     make_rotating_view,
-    optical_params_from_solver,
-    run_lab_case,
-    run_rwa_case,
+    run_case,
 )
 from sjh_learn.utils.io import (
     QuantumResultIO,
@@ -75,17 +73,9 @@ def _tphi_fs(physical: NLevelPhysicalParams):
 
 
 def run_one_physical_point(physical_params: NLevelPhysicalParams):
-    solver = NORMALIZER.normalize(physical_params)
-    parameters = optical_params_from_solver(solver=solver, physical=physical_params, normalizer=NORMALIZER)
-
-    lab = run_lab_case(parameters, physical_params=physical_params, solver_params=solver)
-
+    lab = run_case(replace(physical_params, solver_mode="lab_exact"), normalizer=NORMALIZER)
     rotating = make_rotating_view(lab)
-
-    rwa = run_rwa_case(parameters)
-    rwa.physical_params = physical_params
-    rwa.solver_params = solver
-
+    rwa = run_case(replace(physical_params, solver_mode="rwa"), normalizer=NORMALIZER)
     return lab, rotating, rwa
 
 

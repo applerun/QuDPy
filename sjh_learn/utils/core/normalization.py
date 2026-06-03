@@ -6,11 +6,12 @@ Hamiltonian，也不生成 collapse operator。
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, fields as dataclass_fields
 from typing import Any, Optional
 
 import numpy as np
 
+from sjh_learn.utils.fields.lab_fields import FieldPhyRoot, make_code_field_adapter
 from sjh_learn.utils.core.parameters import NLevelPhysicalParams, PureDephasingChannel, RelaxationChannel, SolverParams
 
 
@@ -174,6 +175,12 @@ class ParaNormalizer:
             raise ValueError("dt_fs 必须为正。")
         if p.pulse_sigma_fs is not None and p.pulse_sigma_fs <= 0:
             raise ValueError("pulse_sigma_fs 必须为正。")
+        if p.field is not None and not isinstance(p.field, FieldPhyRoot):
+            raise TypeError("field must be None or a FieldPhyRoot instance.")
+        if p.input_description is not None and not isinstance(p.input_description, str):
+            raise TypeError("input_description must be None or str.")
+        if p.input_metadata is not None and not isinstance(p.input_metadata, dict):
+            raise TypeError("input_metadata must be None or dict.")
         for channel in p.relaxation_channels:
             if not (0 <= channel.from_level < n and 0 <= channel.to_level < n):
                 raise ValueError(f"relaxation channel {channel.name} 的 level index 超界。")
@@ -193,6 +200,60 @@ class ParaNormalizer:
         s = self._require_solver(solver)
         return np.asarray(t_code_array, dtype=float) * s.time_scale_fs
 
+    def denormalize_time(self, t_code: float, solver: Optional[SolverParams] = None) -> float:
+        """把 solver code time 转回物理时间 fs。"""
+
+        return float(self.denormalize_time_array(np.asarray(t_code, dtype=float), solver))
+
+    @staticmethod
+    def normalize_field_MV_per_cm(
+        E_MV_per_cm: float | np.ndarray,
+        *,
+        reference_field_MV_per_cm: float,
+    ) -> float | np.ndarray:
+        """把真实电场 MV/cm 归一化为 solver field callable 使用的无量纲 code signal。
+
+        N-level coupling matrix 已经包含 `mu * E0 / hbar`，因此进入 Hamiltonian
+        的 field callable 应表示 `E(t) / E0`。`reference_field_MV_per_cm`
+        就是这个 E0；为 0 时直接报错，避免静默产生无物理意义的归一化。
+        """
+
+        if reference_field_MV_per_cm == 0:
+            raise ValueError("reference_field_MV_per_cm must be nonzero.")
+        values = np.asarray(E_MV_per_cm, dtype=float) / float(reference_field_MV_per_cm)
+        if values.ndim == 0:
+            return float(values)
+        return values
+
+    def make_code_field(
+        self,
+        field_phy: FieldPhyRoot,
+        solver: Optional[SolverParams] = None,
+        *,
+        reference_field_MV_per_cm: float | None = None,
+    ):
+        """把用户侧物理电场转换成 solver 内部 code-unit callable。
+
+        这里显式完成 `t_code -> t_fs` 和 `E_MV_per_cm -> E_code`。生成的对象
+        是内部 adapter，不是用户侧输入 API。
+        """
+
+        if not isinstance(field_phy, FieldPhyRoot):
+            raise TypeError("field_phy must be a FieldPhyRoot instance.")
+        s = self._require_solver(solver)
+        reference = reference_field_MV_per_cm
+        if reference is None:
+            physical = getattr(self, "last_physical", None)
+            if physical is None:
+                raise RuntimeError("reference_field_MV_per_cm is required without last_physical.")
+            reference = physical.field_MV_per_cm
+        return make_code_field_adapter(
+            field_phy,
+            self,
+            s,
+            reference_field_MV_per_cm=float(reference),
+        )
+
     def _require_solver(self, solver: Optional[SolverParams]) -> SolverParams:
         if solver is not None:
             return solver
@@ -209,8 +270,14 @@ class ParaNormalizer:
         s = solver if solver is not None else self.last_solver
         if p is None or s is None:
             raise RuntimeError("没有可用的 physical / solver 参数。")
+        physical_payload = {
+            item.name: getattr(p, item.name)
+            for item in dataclass_fields(p)
+            if item.name != "field"
+        }
+        physical_payload["field"] = None if p.field is None else p.field.to_dict()
         return {
-            "physical": asdict(p),
+            "physical": physical_payload,
             "conversion_constants": {
                 "EV_TO_FS_INV": self.EV_TO_FS_INV,
                 "DIPOLE_FIELD_TO_RABI_FS_INV": self.DIPOLE_FIELD_TO_RABI_FS_INV,

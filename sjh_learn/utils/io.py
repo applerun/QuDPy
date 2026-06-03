@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +23,21 @@ HC_EV_NM = 1239.8419843320026
 
 
 def _json_safe(value: Any) -> Any:
+    if type(value).__name__ == "ParaNormalizer":
+        return {"class": "ParaNormalizer", "note": "runtime object omitted from JSON metadata"}
+    if type(value).__name__ == "NLevelPhysicalParams":
+        payload = {
+            item.name: getattr(value, item.name)
+            for item in dataclass_fields(value)
+            if item.name != "field"
+        }
+        field_value = getattr(value, "field", None)
+        payload["field"] = None if field_value is None else _json_safe(field_value)
+        return _json_safe(payload)
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _json_safe(value.to_dict())
     if is_dataclass(value):
-        return _json_safe(asdict(value))
+        return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
     if isinstance(value, np.ndarray):
         if np.iscomplexobj(value):
             return [[{"real": float(item.real), "imag": float(item.imag)} for item in row] for row in value]
@@ -33,6 +46,8 @@ def _json_safe(value: Any) -> Any:
         return value.item()
     if isinstance(value, complex):
         return {"real": float(value.real), "imag": float(value.imag)}
+    if callable(value):
+        return {"callable_serialized": False, "repr": repr(value)}
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -195,9 +210,18 @@ def _input_field_metadata(physical: Any, solver: Any) -> dict[str, Any] | None:
     if physical is None:
         return None
     envelope = _field_envelope(physical)
+    field_metadata = None
+    if getattr(physical, "field", None) is not None and hasattr(physical.field, "to_dict"):
+        field_metadata = physical.field.to_dict()
+        envelope = field_metadata.get("envelope", envelope)
+    field_class = None
+    if field_metadata is not None:
+        field_class = field_metadata.get("class")
+    if field_class is None:
+        field_class = "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical"
     data: dict[str, Any] = {
         "description": "Physical lab-frame optical field.",
-        "class": "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical",
+        "class": field_class,
         "expression": "E(t) = 2 E0 f(t) cos(omega_L t + phase)",
         "E0_MV_per_cm": physical.field_MV_per_cm,
         "peak_E_MV_per_cm": 2.0 * physical.field_MV_per_cm,
@@ -209,6 +233,12 @@ def _input_field_metadata(physical: Any, solver: Any) -> dict[str, Any] | None:
         "time_unit": "fs",
         "amplitude_convention": "field_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
     }
+    if getattr(physical, "input_description", None) is not None:
+        data["user_description"] = physical.input_description
+    if getattr(physical, "input_metadata", None) is not None:
+        data["user_metadata"] = dict(physical.input_metadata)
+    if field_metadata is not None:
+        data["field_metadata"] = field_metadata
     if envelope == "gaussian":
         data["pulse_center_fs"] = physical.pulse_center_fs
         data["pulse_sigma_fs"] = physical.pulse_sigma_fs
@@ -268,9 +298,12 @@ def _lab_frame_solver_metadata(result: ResultLike, physical: Any, solver: Any) -
     if getattr(result, "mode", None) != "lab_exact":
         return None
     envelope = _field_envelope(physical) if physical is not None else "unknown"
+    field_class = "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical"
+    if getattr(physical, "field", None) is not None:
+        field_class = physical.field.__class__.__name__
     return {
         "description": "Direct lab-frame solver using the physical optical carrier.",
-        "field_class": "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical",
+        "field_class": field_class,
         "field_expression": "E(t) = 2 E0 f(t) cos(omega_L t + phase)",
         "interaction": "H_int(t) = -mu E(t)",
         "carrier_retained": True,
@@ -301,7 +334,7 @@ def _input_drive_metadata(result: ResultLike, physical: Any, solver: Any, parame
             "uses_rwa_drive": False,
         }
     envelope = _field_envelope(physical) if physical is not None else "constant"
-    drive_class = "GaussianRwaDrivePhysical" if envelope == "gaussian" else "ConstantRwaDrivePhysical"
+    drive_class = "gaussian_rwa_envelope" if envelope == "gaussian" else "constant_rwa_envelope"
     amplitude = None if solver is None else solver.rabi_fs_inv
     if envelope == "gaussian":
         drive_expr = (
@@ -352,6 +385,13 @@ def _human_metadata(
 
     if physical is not None:
         detuning_eV = physical.energy_gap_eV - physical.laser_energy_eV
+        user_input = None
+        if physical.input_description is not None or physical.input_metadata is not None:
+            user_input = {
+                "description": physical.input_description,
+                "metadata": physical.input_metadata,
+            }
+        meta["user_input"] = user_input
         meta["inputs_physical"] = {
             "basis": physical.basis,
             "energies_eV": physical.energies_eV,
@@ -368,8 +408,11 @@ def _human_metadata(
             "dt_fs": physical.dt_fs,
             "pulse_center_fs": physical.pulse_center_fs,
             "pulse_sigma_fs": physical.pulse_sigma_fs,
+            "input_description": physical.input_description,
+            "input_metadata": physical.input_metadata,
         }
     else:
+        meta["user_input"] = None
         meta["inputs_physical"] = None
 
     meta["input_field"] = _input_field_metadata(physical, solver)
@@ -587,7 +630,7 @@ def save_result_case(
     full_dpi: int = 300,
     save_npz: bool = True,
     save_csv: bool = True,
-    save_populations_csv: bool = True,
+    save_populations_csv: bool = False,
     save_json: bool = True,
     save_human_meta: bool = True,
     save_debug_meta: bool = True,

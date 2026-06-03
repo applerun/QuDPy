@@ -1,85 +1,25 @@
-"""Input field and RWA drive helpers.
+"""用户侧输入场 public API。
 
-User-facing classes use physical units. Solver-internal code-unit callables
-live in :mod:`solver_inputs` and are imported explicitly by solver/model code.
+普通用户只应从这里导入物理单位下的 `FieldPhyRoot` 子类。solver code-unit
+callable 由 `ParaNormalizer` 和 core solver 内部生成，不作为 public API 导出。
 """
 
-from __future__ import annotations
-
-from typing import Any
-
-from sjh_learn.bak.lab_fields import (
+from .lab_fields import (
     CarrierFieldPhysical,
     CompositeLabFieldPhysical,
+    FieldPhyCustomed,
+    FieldPhyRoot,
     GaussianCarrierFieldPhysical,
-    lab_field_from_dict,
-    lab_total_field_array,
-    lab_total_field_value,
+    default_field_from_physical_params,
+    rebuild_physical_field,
 )
-from sjh_learn.bak.rwa_drives import (
-    ConstantRwaDrivePhysical,
-    GaussianRwaDrivePhysical,
-    drive_from_dict,
-)
-from .solver_inputs import (
-    CodeCarrierField,
-    CodeCompositeField,
-    CodeConstantDrive,
-    CodeGaussianCarrierField,
-    CodeGaussianDrive,
-    FieldConfig,
-    electric_field_array,
-    electric_field_value,
-    envelope_value,
-    solver_input_from_dict,
-    total_electric_field_array,
-    total_electric_field_value,
-)
-
-# Backward-compatible public names now point to physical user-facing classes.
-CarrierField = CarrierFieldPhysical
-GaussianCarrierField = GaussianCarrierFieldPhysical
-CompositeField = CompositeLabFieldPhysical
-ConstantDrive = ConstantRwaDrivePhysical
-GaussianDrive = GaussianRwaDrivePhysical
-
-
-def field_from_dict(data: dict[str, Any]):
-    class_name = data.get("class")
-    if class_name in {"CarrierFieldPhysical", "GaussianCarrierFieldPhysical", "CompositeLabFieldPhysical"}:
-        return lab_field_from_dict(data)
-    if class_name in {"ConstantRwaDrivePhysical", "GaussianRwaDrivePhysical"}:
-        return drive_from_dict(data)
-    return solver_input_from_dict(data)
-
 
 __all__ = [
+    "FieldPhyRoot",
+    "FieldPhyCustomed",
     "CarrierFieldPhysical",
     "GaussianCarrierFieldPhysical",
     "CompositeLabFieldPhysical",
-    "ConstantRwaDrivePhysical",
-    "GaussianRwaDrivePhysical",
-    "make_rwa_drive_from_physical_field",
-    "CodeConstantDrive",
-    "CodeGaussianDrive",
-    "CodeCarrierField",
-    "CodeGaussianCarrierField",
-    "CodeCompositeField",
-    "CarrierField",
-    "GaussianCarrierField",
-    "CompositeField",
-    "ConstantDrive",
-    "GaussianDrive",
-    "FieldConfig",
-    "field_from_dict",
-    "drive_from_dict",
-    "lab_field_from_dict",
-    "solver_input_from_dict",
-    "envelope_value",
-    "electric_field_value",
-    "electric_field_array",
-    "total_electric_field_value",
-    "total_electric_field_array",
-    "lab_total_field_value",
-    "lab_total_field_array",
+    "default_field_from_physical_params",
+    "rebuild_physical_field",
 ]

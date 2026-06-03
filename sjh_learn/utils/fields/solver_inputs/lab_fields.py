@@ -217,14 +217,10 @@ def total_electric_field_array(times, fields: Iterable[CodeCarrierField | CodeGa
         total = total + np.asarray(field(time_array), dtype = float)
     return total
 
-
-FieldConfig = CodeCarrierField
-
 __all__ = [
     "CodeCarrierField",
     "CodeGaussianCarrierField",
     "CodeCompositeField",
-    "FieldConfig",
     "envelope_value",
     "electric_field_value",
     "electric_field_array",
