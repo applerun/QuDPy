@@ -7,7 +7,7 @@ solver/result 主架构。
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields as dataclass_fields, is_dataclass
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, is_dataclass
 import json
 from pathlib import Path
 from typing import Any
@@ -16,10 +16,7 @@ import numpy as np
 
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.core.results import DynamicsResult
-from .observables import (
-    dipole_expectation_D,
-    polarization_C_per_m2 as observable_polarization_C_per_m2,
-)
+from sjh_learn.utils.analysis.observables import DEBYE_TO_C_M, dipole_expectation_D
 
 
 def _require_pandas():
@@ -69,9 +66,8 @@ def _safe_name(value: str | None, fallback: str) -> str:
 
 
 def _complex_columns(prefix: str, values: np.ndarray) -> dict[str, Any]:
-    """Return CSV-friendly real-valued columns for a complex spectrum."""
-
     return {
+        prefix: values,
         f"Re_{prefix}": values.real,
         f"Im_{prefix}": values.imag,
         f"abs_{prefix}": np.abs(values),
@@ -88,26 +84,14 @@ def _require_number_density(number_density_m3: float | None) -> float:
     return value
 
 
-def _divide_with_mask(
-    numerator: np.ndarray,
-    denominator: np.ndarray,
-    response_rel_epsilon: float,
-) -> np.ndarray:
-    """Divide spectra with a relative denominator mask.
-
-    Frequencies where ``abs(denominator)`` is too small relative to its maximum
-    are assigned complex NaN. A relative threshold is less unit-dependent than
-    an absolute FFT-amplitude cutoff.
-    """
-
-    if response_rel_epsilon <= 0:
-        raise ValueError("response_rel_epsilon must be positive.")
+def _divide_with_mask(numerator: np.ndarray, denominator: np.ndarray, epsilon: float) -> np.ndarray:
+    if epsilon <= 0:
+        raise ValueError("response_epsilon must be positive.")
     max_denominator = float(np.max(np.abs(denominator)))
     if max_denominator == 0.0:
         raise ValueError("input FFT is identically zero; response division is undefined.")
-    threshold = float(response_rel_epsilon) * max_denominator
     response = np.full_like(numerator, np.nan + 1j * np.nan, dtype=np.complex128)
-    valid = np.abs(denominator) > threshold
+    valid = np.abs(denominator) > epsilon
     response[valid] = numerator[valid] / denominator[valid]
     return response
 
@@ -139,27 +123,31 @@ class DynamicsAnalysis:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_result(
+    def from_dynamics_res(
         cls,
-        result: DynamicsResult,
+        res: DynamicsResult,
         *,
         example_name: str | None = None,
         case_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> "DynamicsAnalysis":
-        """从内存中的 `DynamicsResult` 创建分析对象。"""
+        """从内存中的 `DynamicsResult` 创建分析对象。
 
-        if not isinstance(result, DynamicsResult):
-            raise TypeError("result must be a DynamicsResult.")
+        输入必须是 `DynamicsResult`。该方法不重新求解，只准备对已有轨迹计算
+        polarization、FFT 和 response-like 频域量。
+        """
+
+        if not isinstance(res, DynamicsResult):
+            raise TypeError("res must be a DynamicsResult.")
         return cls(
-            result=result,
+            result=res,
             example_name=example_name,
             case_name=case_name,
             metadata={} if metadata is None else dict(metadata),
         )
 
     @classmethod
-    def from_checkpoint(
+    def from_ckp(
         cls,
         file: str | Path,
         *,
@@ -176,7 +164,7 @@ class DynamicsAnalysis:
         result = DynamicsResult.from_ckp(file)
         local_metadata = {} if metadata is None else dict(metadata)
         local_metadata["checkpoint_file"] = str(Path(file))
-        return cls.from_result(
+        return cls.from_dynamics_res(
             result,
             example_name=example_name,
             case_name=case_name,
@@ -206,7 +194,7 @@ class DynamicsAnalysis:
             raise ValueError("DynamicsAnalysis requires result.times_fs in physical fs units.")
         return np.asarray(self.result.times_fs, dtype=float)
 
-    def coherence(self, pair: tuple[int, int] = (0, 1)) -> np.ndarray:
+    def rho12(self, pair: tuple[int, int] = (0, 1)) -> np.ndarray:
         """返回指定 coherence 轨迹，默认使用 zero-based `rho_01`。
 
         对 N>2，可通过 `pair=(i, j)` 显式选择矩阵元。索引越界会由
@@ -245,46 +233,20 @@ class DynamicsAnalysis:
         `number_density_m3` 必须显式提供，单位是 `m^-3`。
         """
 
-        physical = self.result.physical_params
-        if physical is None:
-            raise ValueError("physical_params is required to compute polarization.")
-        if not hasattr(physical, "dipole_matrix_D"):
-            raise ValueError("physical_params.dipole_matrix_D is required.")
-        polarization = observable_polarization_C_per_m2(
-            self.result.density_array(),
-            physical.dipole_matrix_D,
-            _require_number_density(number_density_m3),
-        )
-        return _require_real_physical_signal(
-            polarization,
-            name="full_polarization_C_per_m2",
-            tolerance=imag_tolerance,
-        )
-
-    def _resolve_input_kind(self, kind: str = "auto") -> str:
-        selected = kind
-        if selected == "auto":
-            if self.result.mode in ("lab_exact", "rotating_view"):
-                selected = "field"
-            elif self.result.mode == "rwa":
-                selected = "drive"
-            else:
-                raise ValueError(
-                    "input_kind='auto' is only defined for lab_exact, rotating_view, and rwa results."
-                )
-        if selected not in ("field", "drive"):
-            raise ValueError("kind must be one of: auto, field, drive.")
-        return selected
+        density = _require_number_density(number_density_m3)
+        return density * self.dipole_expectation_D(imag_tolerance=imag_tolerance) * DEBYE_TO_C_M
 
     def input_signal(self, *, kind: str = "auto") -> tuple[np.ndarray, str, str]:
         """返回用于频域分析的输入信号。
 
-        `kind="auto"` 时，`lab_exact` 和 `rotating_view` 使用物理电场 `E(t)`，
-        单位 `MV/cm`；`rwa` 使用慢变量 drive `g(t)`，单位 `fs^-1`。
+        `kind="auto"` 时，`lab_exact` 使用物理电场 `E(t)`，单位 `MV/cm`；
+        `rwa` / `rotating_view` 使用慢变量 drive `g(t)`，单位 `fs^-1`。
         若 result 缺少对应输入信息，直接报错，不静默猜测。
         """
 
-        selected = self._resolve_input_kind(kind)
+        selected = kind
+        if selected == "auto":
+            selected = "field" if self.result.mode == "lab_exact" else "drive"
         if selected == "field":
             field = self.result.field_MV_per_cm_values()
             if field is None:
@@ -295,7 +257,7 @@ class DynamicsAnalysis:
             if drive is None:
                 raise ValueError("drive_fs_inv_values is required for drive FFT analysis.")
             return np.asarray(drive, dtype=float), "g(t)", "fs^-1"
-        raise AssertionError("unreachable input signal kind")
+        raise ValueError("kind must be one of: auto, field, drive.")
 
     def time_domain_dataframe(self, *, number_density_m3: float | None = None):
         """生成增强版时域 analysis dataframe。
@@ -324,14 +286,14 @@ class DynamicsAnalysis:
         window: str | None = "hann",
         subtract_mean: bool = False,
         positive_only: bool = True,
-        response_rel_epsilon: float = 1e-8,
+        response_epsilon: float = 1e-30,
     ):
         """计算 coherence 与通用 polarization 的 response-like 频域量。
 
-        `rho_over_input = fft_coherence / fft_input` 是 coherence response-like quantity，
-        不是 `chi` 或 absorption。`P_over_input = P_fft / fft_input` 是 polarization
-        response-like quantity；`omega_Im_P_over_input` 给出常用于吸收功率方向判断
-        的 `omega * Im[P_over_input]`，但仍依赖 Fourier convention 和线性响应条件。
+        `rho_over_E = fft_rho12 / fft_E` 只是 coherence response-like quantity，
+        不是 `chi` 或 absorption。`P_over_E = P_fft / fft_E` 是 polarization
+        response-like quantity；`omega_Im_P_over_E` 给出常用于吸收功率方向判断
+        的 `omega * Im[P_over_E]`，但仍依赖 Fourier convention 和线性响应条件。
         """
 
         pd = _require_pandas()
@@ -342,49 +304,40 @@ class DynamicsAnalysis:
         if not np.allclose(dt, dt[0], rtol=1e-5, atol=1e-10):
             raise ValueError("FFT requires a uniformly sampled time axis.")
 
-        coherence = np.asarray(self.coherence(pair), dtype=np.complex128)
-        polarization = np.asarray(
-            self.full_polarization_C_per_m2(number_density_m3=number_density_m3),
-            dtype=np.complex128,
-        )
+        rho = np.asarray(self.rho12(pair), dtype=np.complex128)
+        polarization = np.asarray(self.full_polarization_C_per_m2(number_density_m3=number_density_m3), dtype=np.complex128)
         input_values, input_name, input_unit = self.input_signal(kind=input_kind)
-        input_values = np.asarray(input_values, dtype=float)
-        if input_values.shape != t_fs.shape:
-            raise ValueError(
-                "input signal must have the same shape as time_fs. "
-                f"Got input.shape={input_values.shape}, time_fs.shape={t_fs.shape}."
-            )
 
-        coherence_signal = coherence.copy()
+        rho_signal = rho.copy()
         polarization_signal = polarization.copy()
-        input_signal = input_values.astype(np.complex128)
+        input_signal = np.asarray(input_values, dtype=float).astype(np.complex128)
         if subtract_mean:
-            coherence_signal = coherence_signal - np.mean(coherence_signal)
+            rho_signal = rho_signal - np.mean(rho_signal)
             polarization_signal = polarization_signal - np.mean(polarization_signal)
             input_signal = input_signal - np.mean(input_signal)
 
         win = self._window_values(len(t_fs), window)
-        fft_coherence = np.fft.fft(coherence_signal * win)
+        fft_rho = np.fft.fft(rho_signal * win)
         fft_polarization = np.fft.fft(polarization_signal * win)
         fft_input = np.fft.fft(input_signal * win)
         frequency = np.fft.fftfreq(len(t_fs), d=float(dt[0]))
         angular = 2.0 * np.pi * frequency
         energy_eV = angular / ParaNormalizer.EV_TO_FS_INV
-        coherence_over_input = _divide_with_mask(fft_coherence, fft_input, response_rel_epsilon)
-        polarization_over_input = _divide_with_mask(fft_polarization, fft_input, response_rel_epsilon)
-        omega_im_p_over_input = angular * np.imag(polarization_over_input)
+        rho_over_input = _divide_with_mask(fft_rho, fft_input, response_epsilon)
+        polarization_over_input = _divide_with_mask(fft_polarization, fft_input, response_epsilon)
+        omega_im_p_over_e = angular * np.imag(polarization_over_input)
 
         if positive_only:
             mask = frequency >= 0
             frequency = frequency[mask]
             angular = angular[mask]
             energy_eV = energy_eV[mask]
-            fft_coherence = fft_coherence[mask]
+            fft_rho = fft_rho[mask]
             fft_polarization = fft_polarization[mask]
             fft_input = fft_input[mask]
-            coherence_over_input = coherence_over_input[mask]
+            rho_over_input = rho_over_input[mask]
             polarization_over_input = polarization_over_input[mask]
-            omega_im_p_over_input = omega_im_p_over_input[mask]
+            omega_im_p_over_e = omega_im_p_over_e[mask]
 
         data: dict[str, Any] = {
             "frequency_fs_inv": frequency,
@@ -392,15 +345,13 @@ class DynamicsAnalysis:
             "energy_eV": energy_eV,
             "input_signal_name": input_name,
             "input_signal_unit": input_unit,
-            "input_kind_requested": input_kind,
-            "input_kind_resolved": self._resolve_input_kind(input_kind),
         }
-        data.update(_complex_columns("fft_coherence", fft_coherence))
-        data.update(_complex_columns("fft_input", fft_input))
-        data.update(_complex_columns("coherence_over_input", coherence_over_input))
+        data.update(_complex_columns("fft_rho12", fft_rho))
+        data.update(_complex_columns("fft_E", fft_input))
+        data.update(_complex_columns("rho_over_E", rho_over_input))
         data.update(_complex_columns("P_fft", fft_polarization))
-        data.update(_complex_columns("P_over_input", polarization_over_input))
-        data["omega_Im_P_over_input"] = omega_im_p_over_input
+        data.update(_complex_columns("P_over_E", polarization_over_input))
+        data["omega_Im_P_over_E"] = omega_im_p_over_e
         return pd.DataFrame(data)
 
     @staticmethod
@@ -440,12 +391,8 @@ class DynamicsAnalysis:
         number_density_m3: float | None = None,
         pair: tuple[int, int] = (0, 1),
         input_kind: str = "auto",
-        window: str | None = "hann",
-        subtract_mean: bool = False,
-        positive_only: bool = True,
-        response_rel_epsilon: float = 1e-8,
     ):
-        """绘制 `|P_over_input|` 频域响应强度。
+        """绘制 `|P_over_E|` 频域响应强度。
 
         返回 `(fig, ax)`。该图展示 polarization response-like quantity，
         不直接命名为 `chi` 或 absorption。
@@ -461,68 +408,12 @@ class DynamicsAnalysis:
             number_density_m3=number_density_m3,
             pair=pair,
             input_kind=input_kind,
-            window=window,
-            subtract_mean=subtract_mean,
-            positive_only=positive_only,
-            response_rel_epsilon=response_rel_epsilon,
         )
-        input_name = frame["input_signal_name"].iloc[0] if len(frame) else "input"
-        ax.plot(frame["energy_eV"], frame["abs_P_over_input"])
+        ax.plot(frame["energy_eV"], frame["abs_P_over_E"])
         ax.set_xlabel("Energy (eV)")
-        ax.set_ylabel("|P_over_input|")
-        ax.set_title(f"Polarization response-like spectrum vs {input_name}")
+        ax.set_ylabel("|P_over_E|")
+        ax.set_title("Polarization response-like spectrum")
         return fig, ax
-
-    def _analysis_request_dict(
-        self,
-        *,
-        number_density_m3: float,
-        pair: tuple[int, int],
-        input_kind: str,
-        window: str | None,
-        subtract_mean: bool,
-        positive_only: bool,
-        response_rel_epsilon: float,
-    ) -> dict[str, Any]:
-        return _json_safe(
-            {
-                "result_mode": self.result.mode,
-                "dimension": self.result.dimension(),
-                "pair": list(pair),
-                "number_density_m3": float(number_density_m3),
-                "input_kind_requested": input_kind,
-                "input_kind_resolved": self._resolve_input_kind(input_kind),
-                "fft_parameters": {
-                    "window": window,
-                    "subtract_mean": bool(subtract_mean),
-                    "positive_only": bool(positive_only),
-                    "response_rel_epsilon": float(response_rel_epsilon),
-                },
-            }
-        )
-
-    def _existing_metadata_matches(
-        self,
-        metadata: dict[str, Any],
-        *,
-        number_density_m3: float,
-        pair: tuple[int, int],
-        input_kind: str,
-        window: str | None,
-        subtract_mean: bool,
-        positive_only: bool,
-        response_rel_epsilon: float,
-    ) -> bool:
-        expected = self._analysis_request_dict(
-            number_density_m3=number_density_m3,
-            pair=pair,
-            input_kind=input_kind,
-            window=window,
-            subtract_mean=subtract_mean,
-            positive_only=positive_only,
-            response_rel_epsilon=response_rel_epsilon,
-        )
-        return metadata.get("analysis_request") == expected
 
     def metadata_dict(
         self,
@@ -530,10 +421,6 @@ class DynamicsAnalysis:
         number_density_m3: float | None = None,
         pair: tuple[int, int] = (0, 1),
         input_kind: str = "auto",
-        window: str | None = "hann",
-        subtract_mean: bool = False,
-        positive_only: bool = True,
-        response_rel_epsilon: float = 1e-8,
         output_files: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """生成 analysis metadata。
@@ -546,15 +433,6 @@ class DynamicsAnalysis:
         physical = self.result.physical_params
         solver = self.result.solver_params
         input_values, input_name, input_unit = self.input_signal(kind=input_kind)
-        analysis_request = self._analysis_request_dict(
-            number_density_m3=density,
-            pair=pair,
-            input_kind=input_kind,
-            window=window,
-            subtract_mean=subtract_mean,
-            positive_only=positive_only,
-            response_rel_epsilon=response_rel_epsilon,
-        )
         return _json_safe(
             {
                 "analysis_type": "DynamicsAnalysis",
@@ -564,13 +442,10 @@ class DynamicsAnalysis:
                 "dimension": self.result.dimension(),
                 "pair": list(pair),
                 "number_density_m3": density,
-                "analysis_request": analysis_request,
                 "polarization_definition": "P(t) = number_density_m3 * Tr[rho(t) mu_D] * DEBYE_TO_C_M",
-                "coherence_over_input_note": (
-                    "coherence_over_input is a coherence response-like quantity, not chi or absorption."
-                ),
-                "P_over_input_note": (
-                    "P_over_input and omega_Im_P_over_input are polarization response-like quantities; "
+                "rho_over_E_note": "rho_over_E is a coherence response-like quantity, not chi or absorption.",
+                "P_over_E_note": (
+                    "P_over_E and omega_Im_P_over_E are polarization response-like quantities; "
                     "interpretation depends on Fourier convention and linear-response conditions."
                 ),
                 "time_unit": "fs",
@@ -585,11 +460,9 @@ class DynamicsAnalysis:
                 "input_signal": {
                     "name": input_name,
                     "unit": input_unit,
-                    "input_kind_requested": input_kind,
-                    "input_kind_resolved": self._resolve_input_kind(input_kind),
+                    "input_kind": input_kind,
                     "n_points": len(input_values),
                 },
-                "fft_parameters": analysis_request["fft_parameters"],
                 "input_field_class": self._input_field_class_name(),
                 "physical_params": physical,
                 "solver_params_fs_inv": None
@@ -631,10 +504,6 @@ class DynamicsAnalysis:
         number_density_m3: float | None = None,
         pair: tuple[int, int] = (0, 1),
         input_kind: str = "auto",
-        window: str | None = "hann",
-        subtract_mean: bool = False,
-        positive_only: bool = True,
-        response_rel_epsilon: float = 1e-8,
         save_csv: bool = True,
         save_png: bool = True,
         save_json: bool = True,
@@ -643,12 +512,11 @@ class DynamicsAnalysis:
         """保存 analysis CSV / PNG / JSON 输出。
 
         默认输出到 `outputs/analysis/<example_name>/<case_name>/`。若已有
-        `analysis_metadata.json` 且 `overwrite=False`，只有当已有 metadata 的
-        analysis 参数与当前请求一致时才复用；否则直接报错，要求显式传入
-        `overwrite=True`。
+        `analysis_metadata.json` 且 `overwrite=False`，会直接返回已有文件路径；
+        若需要重新计算，显式传入 `overwrite=True`。
         """
 
-        density = _require_number_density(number_density_m3)
+        _require_number_density(number_density_m3)
         local_example = _safe_name(example_name or self.example_name, self.resolved_example_name)
         local_case = _safe_name(case_name or self.case_name, self.resolved_case_name)
         root = Path(output_dir) / local_example / local_case
@@ -657,20 +525,6 @@ class DynamicsAnalysis:
 
         if metadata_path.exists() and not overwrite:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if not self._existing_metadata_matches(
-                metadata,
-                number_density_m3=density,
-                pair=pair,
-                input_kind=input_kind,
-                window=window,
-                subtract_mean=subtract_mean,
-                positive_only=positive_only,
-                response_rel_epsilon=response_rel_epsilon,
-            ):
-                raise ValueError(
-                    "Existing analysis output was generated with different analysis parameters. "
-                    "Use overwrite=True or choose another output directory."
-                )
             existing = {
                 key: root / value
                 for key, value in metadata.get("output_files", {}).items()
@@ -683,18 +537,14 @@ class DynamicsAnalysis:
         if save_csv:
             components_path = root / "analysis_components.csv"
             fft_path = root / "fft_response.csv"
-            self.time_domain_dataframe(number_density_m3=density).to_csv(
+            self.time_domain_dataframe(number_density_m3=number_density_m3).to_csv(
                 components_path,
                 index=False,
             )
             self.fft_response_dataframe(
-                number_density_m3=density,
+                number_density_m3=number_density_m3,
                 pair=pair,
                 input_kind=input_kind,
-                window=window,
-                subtract_mean=subtract_mean,
-                positive_only=positive_only,
-                response_rel_epsilon=response_rel_epsilon,
             ).to_csv(fft_path, index=False)
             written["analysis_components"] = components_path
             written["fft_response"] = fft_path
@@ -704,18 +554,14 @@ class DynamicsAnalysis:
 
             figs_dir = root / "figs"
             figs_dir.mkdir(parents=True, exist_ok=True)
-            fig, _ax = self.plot_polarization_time(number_density_m3=density)
+            fig, _ax = self.plot_polarization_time(number_density_m3=number_density_m3)
             polarization_path = figs_dir / "polarization_time.png"
             fig.savefig(polarization_path, dpi=dpi)
             plt.close(fig)
             fig, _ax = self.plot_fft_response(
-                number_density_m3=density,
+                number_density_m3=number_density_m3,
                 pair=pair,
                 input_kind=input_kind,
-                window=window,
-                subtract_mean=subtract_mean,
-                positive_only=positive_only,
-                response_rel_epsilon=response_rel_epsilon,
             )
             fft_path = figs_dir / "fft_response.png"
             fig.savefig(fft_path, dpi=dpi)
@@ -726,13 +572,9 @@ class DynamicsAnalysis:
         if save_json:
             output_files = {key: path.relative_to(root).as_posix() for key, path in written.items()}
             metadata = self.metadata_dict(
-                number_density_m3=density,
+                number_density_m3=number_density_m3,
                 pair=pair,
                 input_kind=input_kind,
-                window=window,
-                subtract_mean=subtract_mean,
-                positive_only=positive_only,
-                response_rel_epsilon=response_rel_epsilon,
                 output_files=output_files,
             )
             metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")

@@ -69,9 +69,7 @@ def chi_two_level_linear(
 
     这是 analysis 层的 analytic/teaching helper，不是 core two-level API，也不是
     `DynamicsResult` 的一部分。输入角频率使用 `fs^-1`，函数内部转换到 `s^-1`；
-    `mu_ge_D` 使用 Debye，并转换为 `C*m`。默认 `population_difference=1.0`
-    对应线性响应弱场极限下的基态占优约定；实际符号仍取决于响应函数和
-    Fourier convention。
+    `mu_ge_D` 使用 Debye，并转换为 `C*m`。
     """
 
     omega_s_inv = np.asarray(omega_fs_inv, dtype=float) * FS_INV_TO_S_INV

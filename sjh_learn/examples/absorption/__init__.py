@@ -1,0 +1,1 @@
+"""Absorption and susceptibility examples."""
