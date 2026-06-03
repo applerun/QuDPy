@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 from qutip import Qobj, mesolve
@@ -233,7 +234,20 @@ def run_case(
     physical_params: NLevelPhysicalParams,
     normalizer: ParaNormalizer | None = None,
     rho0: Qobj | None = None,
+    *,
+    load_ckp: str | Path | None = None,
+    save_ckp: str | Path | None = None,
+    force_run: bool = False,
 ) -> DynamicsResult:
+    load_path = None if load_ckp is None else Path(load_ckp)
+    if load_path is not None and load_path.exists() and not force_run:
+        print(f"Loading checkpoint: {load_path}")
+        return DynamicsResult.from_ckp(load_path)
+    if load_path is not None and force_run:
+        print(f"force_run=True, running simulation and ignoring checkpoint: {load_path}")
+    elif load_path is not None:
+        print(f"Checkpoint not found, running simulation: {load_path}")
+
     if physical_params.solver_mode == "rwa" and physical_params.field is not None:
         raise ValueError(
             "RWA mode currently derives its internal envelope from NLevelPhysicalParams pulse parameters, "
@@ -243,13 +257,21 @@ def run_case(
     solver = local_normalizer.normalize(physical_params)
     parameters = _optical_params_from_solver(solver=solver, physical=physical_params, normalizer=local_normalizer)
     if physical_params.solver_mode == "lab_exact":
-        return _run_lab_case(parameters, rho0=rho0, physical_params=physical_params, solver_params=solver)
+        result = _run_lab_case(parameters, rho0=rho0, physical_params=physical_params, solver_params=solver)
     if physical_params.solver_mode == "rwa":
         result = _run_rwa_case(parameters, rho0=rho0)
         result.physical_params = physical_params
         result.solver_params = solver
-        return result
-    raise ValueError(f"Unsupported solver_mode: {physical_params.solver_mode!r}. Expected 'lab_exact' or 'rwa'.")
+    if physical_params.solver_mode not in {"lab_exact", "rwa"}:
+        raise ValueError(f"Unsupported solver_mode: {physical_params.solver_mode!r}. Expected 'lab_exact' or 'rwa'.")
+
+    checkpoint_save_path = save_ckp if save_ckp is not None else load_ckp
+    if checkpoint_save_path is not None:
+        save_path = Path(checkpoint_save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Saving checkpoint: {save_path}")
+        result.save_ckp(save_path)
+    return result
 
 
 def run_cases(

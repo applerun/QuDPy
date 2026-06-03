@@ -292,7 +292,7 @@ def build_preview_figure(
     else:
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(3, 1, figsize=(5.6, 4.9), sharex=True)
+        fig, axes = plt.subplots(3, 1, figsize=(5.6*1.5, 4.9*1.5), sharex=True)
         selected_coherences = coherences
         if selected_coherences is None:
             selected_coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
