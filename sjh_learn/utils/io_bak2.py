@@ -262,46 +262,18 @@ def _replace_long_axis_with_summary(container: dict[str, Any], key: str, summary
         container[summary_key] = {"summary_failed": True, "repr": repr(value)}
 
 
-_TIME_AXIS_SUMMARY_KEYS = {
-    "tlist": "tlist_code_summary",
-    "tlist_code": "tlist_code_summary",
-    "time_code": "time_code_summary",
-    "times_code": "time_code_summary",
-    "times": "time_code_summary",
-    "time_fs": "time_fs_summary",
-    "times_fs": "time_fs_summary",
-}
-
-
-def _compact_time_axes_recursive(value: Any) -> Any:
-    """Replace full time-axis arrays in debug metadata with compact summaries.
-
-    This keeps debug_meta.json readable and avoids duplicating time axes that are
-    already stored losslessly in density.npz. Only known time-axis keys are
-    compacted; other numeric arrays remain available for debug metadata.
-    """
-
-    if isinstance(value, dict):
-        compacted: dict[str, Any] = {}
-        for key, item in value.items():
-            summary_key = _TIME_AXIS_SUMMARY_KEYS.get(str(key))
-            if summary_key is not None and isinstance(item, (list, tuple, np.ndarray)):
-                try:
-                    compacted[summary_key] = _array_summary(item)
-                except (TypeError, ValueError):
-                    compacted[summary_key] = {"summary_failed": True, "repr": repr(item)}
-                continue
-            compacted[str(key)] = _compact_time_axes_recursive(item)
-        return compacted
-    if isinstance(value, list):
-        return [_compact_time_axes_recursive(item) for item in value]
-    return value
-
-
 def _compact_debug_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """Keep debug_meta.json useful without duplicating full time axes from density.npz."""
 
-    return _compact_time_axes_recursive(metadata)
+    parameters_code = metadata.get("parameters_code")
+    if isinstance(parameters_code, dict):
+        _replace_long_axis_with_summary(parameters_code, "tlist", "tlist_code_summary")
+
+    solver_params_code = metadata.get("solver_params_code")
+    if isinstance(solver_params_code, dict):
+        _replace_long_axis_with_summary(solver_params_code, "tlist_code", "tlist_code_summary")
+
+    return metadata
 
 
 def _input_field_metadata(physical: Any, solver: Any) -> dict[str, Any] | None:

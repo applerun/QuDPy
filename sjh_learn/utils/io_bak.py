@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass, fields as dataclass_fields, is_dataclass
+from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -204,104 +204,6 @@ def _component_export_metadata(result: ResultLike) -> dict[str, Any]:
 
 def _field_envelope(physical: Any) -> str:
     return "gaussian" if getattr(physical, "pulse_sigma_fs", None) is not None else "constant"
-
-
-def _field_rebuild_metadata(result: ResultLike, physical: Any) -> dict[str, Any] | None:
-    """Return a JSON-safe, rebuild-oriented physical field payload for meta.json."""
-
-    if physical is None:
-        return None
-
-    explicit_field = getattr(physical, "field", None)
-    if explicit_field is not None and hasattr(explicit_field, "to_dict"):
-        return _json_safe(explicit_field.to_dict())
-
-    drive_dict = getattr(result, "drive_dict", None)
-    if isinstance(drive_dict, dict):
-        source_field = drive_dict.get("source_field")
-        if source_field is not None:
-            return _json_safe(source_field)
-
-    return None
-
-
-def _array_summary(value: Any) -> dict[str, Any]:
-    """Summarize a long 1D numeric array for JSON metadata."""
-
-    array = np.asarray(value, dtype=float).reshape(-1)
-    if array.size == 0:
-        return {"n_points": 0, "start": None, "end": None, "dt": None}
-    if array.size == 1:
-        return {
-            "n_points": 1,
-            "start": float(array[0]),
-            "end": float(array[0]),
-            "dt": None,
-        }
-    diffs = np.diff(array)
-    first_dt = float(diffs[0])
-    uniform = bool(np.allclose(diffs, first_dt, rtol=1e-9, atol=1e-12))
-    return {
-        "n_points": int(array.size),
-        "start": float(array[0]),
-        "end": float(array[-1]),
-        "dt": first_dt if uniform else None,
-        "is_uniform": uniform,
-    }
-
-
-def _replace_long_axis_with_summary(container: dict[str, Any], key: str, summary_key: str) -> None:
-    """Replace a long array entry in-place with a compact summary."""
-
-    if not isinstance(container, dict) or key not in container:
-        return
-    value = container.pop(key)
-    try:
-        container[summary_key] = _array_summary(value)
-    except (TypeError, ValueError):
-        container[summary_key] = {"summary_failed": True, "repr": repr(value)}
-
-
-_TIME_AXIS_SUMMARY_KEYS = {
-    "tlist": "tlist_code_summary",
-    "tlist_code": "tlist_code_summary",
-    "time_code": "time_code_summary",
-    "times_code": "time_code_summary",
-    "times": "time_code_summary",
-    "time_fs": "time_fs_summary",
-    "times_fs": "time_fs_summary",
-}
-
-
-def _compact_time_axes_recursive(value: Any) -> Any:
-    """Replace full time-axis arrays in debug metadata with compact summaries.
-
-    This keeps debug_meta.json readable and avoids duplicating time axes that are
-    already stored losslessly in density.npz. Only known time-axis keys are
-    compacted; other numeric arrays remain available for debug metadata.
-    """
-
-    if isinstance(value, dict):
-        compacted: dict[str, Any] = {}
-        for key, item in value.items():
-            summary_key = _TIME_AXIS_SUMMARY_KEYS.get(str(key))
-            if summary_key is not None and isinstance(item, (list, tuple, np.ndarray)):
-                try:
-                    compacted[summary_key] = _array_summary(item)
-                except (TypeError, ValueError):
-                    compacted[summary_key] = {"summary_failed": True, "repr": repr(item)}
-                continue
-            compacted[str(key)] = _compact_time_axes_recursive(item)
-        return compacted
-    if isinstance(value, list):
-        return [_compact_time_axes_recursive(item) for item in value]
-    return value
-
-
-def _compact_debug_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Keep debug_meta.json useful without duplicating full time axes from density.npz."""
-
-    return _compact_time_axes_recursive(metadata)
 
 
 def _input_field_metadata(physical: Any, solver: Any) -> dict[str, Any] | None:
@@ -514,7 +416,6 @@ def _human_metadata(
         meta["inputs_physical"] = None
 
     meta["input_field"] = _input_field_metadata(physical, solver)
-    meta["input_field_rebuild"] = _field_rebuild_metadata(result, physical)
     meta["solver_representation"] = _solver_representation_metadata(result)
     meta["lab_frame_solver"] = _lab_frame_solver_metadata(result, physical, solver)
     meta["rotating_transform"] = _rotating_transform_metadata(result, solver)
@@ -559,7 +460,7 @@ def _debug_metadata(
     metadata["example_name"] = example_name
     metadata["condition_name"] = condition_name
     metadata["case_name"] = case_name
-    return _compact_debug_metadata(metadata)
+    return metadata
 
 
 def _relative_output_files(case_dir: Path, written: dict[str, Path]) -> dict[str, str]:
@@ -649,7 +550,7 @@ def save_result_data(
     *,
     save_npz: bool = True,
     save_csv: bool = True,
-    save_populations_csv: bool = False,
+    save_populations_csv: bool = True,
     save_json: bool = True,
     save_human_meta: bool = True,
     save_debug_meta: bool = True,
