@@ -28,7 +28,7 @@ def make_base_gaussian_physical_params() -> NLevelPhysicalParams:
         t_end_fs=1200.0,
         dt_fs=0.5,
         pulse_center_fs=000.0,
-        pulse_sigma_fs=200/1.665,
+        pulse_sigma_fs=10/1.665,
     )
 
 
