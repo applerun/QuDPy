@@ -240,9 +240,6 @@ def optical_params_from_solver(
     )
 
 
-def run_case(parameters: NLevelSolverParams) -> DynamicsResult:
-    return run_lab_case(parameters)
-
 
 def run_physical_case(
     physical_params: NLevelPhysicalParams,
@@ -268,7 +265,7 @@ def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
                 coupling_matrix=tuple(tuple(amplitude_scale * complex(item) for item in row) for row in sweep.dipole_matrix),
                 omega_drive=sweep.omega_drive,
             )
-            results.append(run_case(parameters))
+            results.append(run_lab_case(parameters))
     return results
 
 
@@ -299,7 +296,6 @@ __all__ = [
     "optical_params_from_solver",
     "run_lab_case",
     "run_rwa_case",
-    "run_case",
     "run_physical_case",
     "run_parameter_sweep",
     "run_physical_parameter_sweep",
