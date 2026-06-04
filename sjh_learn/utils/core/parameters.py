@@ -58,7 +58,7 @@ class NLevelPhysicalParams:
     """
 
     energies_eV: tuple[float, ...]
-    dipole_matrix_D: tuple[tuple[float, ...], ...]
+    dipole_matrix_D: Any
     field_MV_per_cm: float
     laser_energy_eV: float
     t_start_fs: float
@@ -71,9 +71,29 @@ class NLevelPhysicalParams:
     pulse_sigma_fs: float | None = None
     solver_mode: str = "lab_exact"
     field: FieldPhyRoot | None = None
-    # 用户自定义输入说明，仅用于 meta.json / debug_meta.json 记录，不参与归一化或求解。
+    # 用户自定义输入说明，只写入 metadata，不参与归一化或求解。
     input_description: str | None = None
     input_metadata: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        """把用户给出的 real/complex `dipole_matrix_D` 规范为 complex128 并做物理检查。
+
+        `dipole_matrix_D` 表示沿选定 polarization 投影后的偶极矩算符。作为物理
+        observable，它必须是 Hermitian；对角元代表 permanent dipole contribution，
+        因而只能有数值误差范围内的虚部。
+        """
+
+        dipole = np.asarray(self.dipole_matrix_D, dtype=np.complex128)
+        if dipole.ndim != 2 or dipole.shape[0] != dipole.shape[1]:
+            raise ValueError("dipole_matrix_D must be a square N x N matrix.")
+        if dipole.shape[0] != len(self.energies_eV):
+            raise ValueError("dipole_matrix_D shape must match energies_eV length.")
+        if not np.allclose(dipole, dipole.conj().T, rtol=1e-10, atol=1e-12):
+            raise ValueError("dipole_matrix_D must be Hermitian: mu[j, i] = conj(mu[i, j]).")
+        diagonal = np.diag(dipole)
+        if np.max(np.abs(diagonal.imag)) > 1e-12:
+            raise ValueError("diagonal elements of dipole_matrix_D must be real within numerical tolerance.")
+        object.__setattr__(self, "dipole_matrix_D", dipole)
 
     @property
     def dimension(self) -> int:
@@ -136,11 +156,21 @@ class SolverParams:
     def rabi_fs_inv(self) -> float:
         if self.coupling_matrix_fs_inv.shape[0] < 2:
             return 0.0
-        return float(self.coupling_matrix_fs_inv[0, 1].real)
+        return float(abs(self.coupling_matrix_fs_inv[0, 1]))
+
+    @property
+    def rabi_fs_inv_complex(self) -> complex:
+        if self.coupling_matrix_fs_inv.shape[0] < 2:
+            return 0.0 + 0.0j
+        return complex(self.coupling_matrix_fs_inv[0, 1])
 
     @property
     def rabi(self) -> float:
-        return self.rabi_fs_inv * self.time_scale_fs
+        return float(abs(self.rabi_complex))
+
+    @property
+    def rabi_complex(self) -> complex:
+        return self.rabi_fs_inv_complex * self.time_scale_fs
 
     @property
     def gamma1_fs_inv(self) -> float:

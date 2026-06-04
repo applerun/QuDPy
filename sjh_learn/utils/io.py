@@ -43,7 +43,7 @@ def _json_safe(value: Any) -> Any:
             return [[{"real": float(item.real), "imag": float(item.imag)} for item in row] for row in value]
         return value.tolist()
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
     if isinstance(value, complex):
         return {"real": float(value.real), "imag": float(value.imag)}
     if callable(value):

@@ -51,7 +51,7 @@ def _json_safe(value: Any) -> Any:
             return [{"real": float(item.real), "imag": float(item.imag)} for item in value.ravel()]
         return value.tolist()
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
     if isinstance(value, complex):
         return {"real": float(value.real), "imag": float(value.imag)}
     if isinstance(value, dict):

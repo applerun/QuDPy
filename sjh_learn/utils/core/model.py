@@ -95,12 +95,24 @@ def pulse_envelope(time: float, pulse_center: float | None, pulse_sigma: float |
 
 
 def build_static_hamiltonian(parameters: NLevelSolverParams) -> Qobj:
-    return Qobj(np.diag(np.asarray(parameters.energies, dtype=np.complex128)))
+    h0 = np.diag(np.asarray(parameters.energies, dtype=np.complex128))
+    _require_hermitian_matrix(h0, "field-free Hamiltonian")
+    return Qobj(h0)
+
+
+def _require_hermitian_matrix(matrix: np.ndarray, name: str) -> None:
+    array = np.asarray(matrix, dtype=np.complex128)
+    if array.ndim != 2 or array.shape[0] != array.shape[1]:
+        raise ValueError(f"{name} must be square.")
+    if not np.allclose(array, array.conj().T, rtol=1e-10, atol=1e-12):
+        raise ValueError(f"{name} must be Hermitian.")
 
 
 def build_lab_hamiltonian(parameters: NLevelSolverParams) -> list[Qobj | list[object]]:
     h0 = build_static_hamiltonian(parameters)
-    dipole_operator = Qobj(as_complex_matrix(parameters.dipole_matrix))
+    dipole_matrix = as_complex_matrix(parameters.dipole_matrix)
+    _require_hermitian_matrix(dipole_matrix, "lab-frame dipole interaction matrix")
+    dipole_operator = Qobj(dipole_matrix)
     # H_int(t) = -E_code(t) * mu_code_matrix。这里所有量已经是 solver code unit。
     return [
         h0,
@@ -117,11 +129,23 @@ def build_rwa_hamiltonian(parameters: NLevelSolverParams) -> list[Qobj | list[ob
     shifted = energies - energies[0]
     if n_levels >= 2:
         shifted[1] = shifted[1] - parameters.omega_drive
-    h_static = Qobj(np.diag(shifted.astype(np.complex128)))
+    h_static_matrix = np.diag(shifted.astype(np.complex128))
+    _require_hermitian_matrix(h_static_matrix, "RWA static Hamiltonian")
+    h_static = Qobj(h_static_matrix)
     coupling = as_complex_matrix(parameters.coupling_matrix or parameters.dipole_matrix)
     # RWA path 使用慢变量 coupling matrix；光学 carrier 已经移除。
-    h_coupling = Qobj(-coupling)
-    return [h_static, [h_coupling, lambda t, args: float(args["drive"](t))]]
+    _require_hermitian_matrix(coupling, "RWA coupling matrix")
+    diagonal = np.diag(np.diag(coupling))
+    lower = np.tril(coupling, k=-1)
+    h_diagonal = Qobj(-diagonal)
+    h_lower = Qobj(-lower)
+    h_upper = h_lower.dag()
+    return [
+        h_static,
+        [h_diagonal, lambda t, args: float(np.real(args["drive"](t)))],
+        [h_lower, lambda t, args: complex(args["drive"](t))],
+        [h_upper, lambda t, args: complex(np.conjugate(args["drive"](t)))],
+    ]
 
 
 def _collapse_projector(n_levels: int, level: int) -> Qobj:

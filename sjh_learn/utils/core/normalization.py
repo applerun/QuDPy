@@ -52,7 +52,7 @@ class ParaNormalizer:
         return 1.0 / T_fs
 
     @classmethod
-    def rabi_fs_inv_from_mu_and_field(cls, projected_dipole_D: float, field_MV_per_cm: float) -> float:
+    def rabi_fs_inv_from_mu_and_field(cls, projected_dipole_D: complex, field_MV_per_cm: float) -> complex:
         return projected_dipole_D * field_MV_per_cm * cls.DIPOLE_FIELD_TO_RABI_FS_INV
 
     @classmethod
@@ -167,6 +167,10 @@ class ParaNormalizer:
         dipole = np.asarray(p.dipole_matrix_D, dtype=np.complex128)
         if dipole.shape != (n, n):
             raise ValueError("dipole_matrix_D 必须是 N x N，并与 energies_eV 长度一致。")
+        if not np.allclose(dipole, dipole.conj().T, rtol=1e-10, atol=1e-12):
+            raise ValueError("dipole_matrix_D must be Hermitian: mu[j, i] = conj(mu[i, j]).")
+        if np.max(np.abs(np.diag(dipole).imag)) > 1e-12:
+            raise ValueError("diagonal elements of dipole_matrix_D must be real within numerical tolerance.")
         if p.basis is not None and len(p.basis) != n:
             raise ValueError("basis 长度必须与 energies_eV 一致。")
         if p.t_end_fs <= p.t_start_fs:

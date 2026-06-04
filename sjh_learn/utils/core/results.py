@@ -49,7 +49,7 @@ def _json_safe(value: Any) -> Any:
             return _complex_matrix_to_json(value)
         return value.tolist()
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_safe(value.item())
     if isinstance(value, complex):
         return {"real": float(value.real), "imag": float(value.imag)}
     if callable(value):
@@ -85,6 +85,13 @@ def _phase_with_mask(values: np.ndarray, *, threshold: float = 1e-8) -> tuple[np
     return phase, phase_unwrapped
 
 
+def _real_if_close(values: np.ndarray, *, tolerance: float = 1e-12) -> np.ndarray:
+    array = np.asarray(values)
+    if np.iscomplexobj(array) and np.max(np.abs(array.imag)) <= tolerance:
+        return array.real
+    return array
+
+
 def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
     return {
         "time_scale_fs": solver.time_scale_fs,
@@ -96,6 +103,7 @@ def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
         "omega_L_fs_inv": solver.omega_L_fs_inv,
         "detuning_fs_inv": solver.detuning_fs_inv,
         "rabi_fs_inv": solver.rabi_fs_inv,
+        "rabi_fs_inv_complex": solver.rabi_fs_inv_complex,
         "gamma1_fs_inv": solver.gamma1_fs_inv,
         "gamma_phi_fs_inv": solver.gamma_phi_fs_inv,
         "gamma2_fs_inv": solver.gamma2_fs_inv,
@@ -112,6 +120,7 @@ def _solver_params_code_dict(solver: SolverParams) -> dict[str, Any]:
         "omega_L_code": solver.omega_L,
         "detuning_code": solver.detuning,
         "rabi_code": solver.rabi,
+        "rabi_code_complex": solver.rabi_complex,
         "gamma1_code": solver.gamma1,
         "gamma_phi_code": solver.gamma_phi,
         "gamma2_code": solver.gamma2,
@@ -208,16 +217,16 @@ class DynamicsResult:
         if self.drive is None:
             return None
         sample_times = self.times if times is None else np.asarray(times, dtype=float)
-        values = np.asarray(self.drive(sample_times), dtype=float)
+        values = np.asarray(self.drive(sample_times), dtype=np.complex128)
         if self.mode == "rwa" and self.solver_params is not None:
-            return values * float(self.solver_params.rabi)
-        return values
+            return _real_if_close(values * self.solver_params.rabi_complex)
+        return _real_if_close(values)
 
     def drive_fs_inv_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         drive_code = self.drive_code_values(times)
         if drive_code is None or self.solver_params is None or self.mode != "rwa":
             return None
-        return np.asarray(drive_code, dtype=float) / float(self.solver_params.time_scale_fs)
+        return _real_if_close(np.asarray(drive_code, dtype=np.complex128) / float(self.solver_params.time_scale_fs))
 
     def field_MV_per_cm_values(
         self,
