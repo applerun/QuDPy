@@ -167,6 +167,10 @@ class ParaNormalizer:
         dipole = np.asarray(p.dipole_matrix_D, dtype=np.complex128)
         if dipole.shape != (n, n):
             raise ValueError("dipole_matrix_D 必须是 N x N，并与 energies_eV 长度一致。")
+        # `dipole_matrix_D` 表示物理偶极矩算符，必须是 Hermitian；这允许
+        # complex transition dipole，但会拒绝非共轭的跃迁矩阵元和虚数对角元。
+        if not np.allclose(dipole, dipole.conj().T):
+            raise ValueError("dipole_matrix_D 必须是 Hermitian；transition dipole 需要满足 mu_ij = conj(mu_ji)。")
         if p.basis is not None and len(p.basis) != n:
             raise ValueError("basis 长度必须与 energies_eV 一致。")
         if p.t_end_fs <= p.t_start_fs:

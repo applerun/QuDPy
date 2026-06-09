@@ -305,6 +305,103 @@ def build_preview_figure(
     return fig, axes
 
 
+def normalize_for_shape(y: np.ndarray) -> np.ndarray:
+    y = np.asarray(y)
+    if np.iscomplexobj(y):
+        y = np.real(y)
+    y = y.astype(float)
+    finite = np.isfinite(y)
+    if not np.any(finite):
+        return y
+    scale = np.nanmax(np.abs(y[finite]))
+    if scale == 0.0:
+        return y
+    return y / scale
+
+
+def sorted_xy_for_plot(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y)
+    finite = np.isfinite(x) & np.isfinite(y)
+    x = x[finite]
+    y = y[finite]
+    if x.size == 0:
+        return x, y
+    order = np.argsort(x)
+    return x[order], y[order]
+
+
+def plot_normalized_curve(ax, x, y, *, label: str, **plot_kwargs) -> np.ndarray:
+    x, y = sorted_xy_for_plot(x, y)
+    if x.size == 0:
+        return np.array([], dtype=float)
+    y_norm = normalize_for_shape(y)
+    ax.plot(x, y_norm, label=label, **plot_kwargs)
+    return y_norm
+
+
+def real_if_close_or_abs_for_plot(values: np.ndarray) -> tuple[np.ndarray, str]:
+    values = np.asarray(values)
+    real_values = np.real_if_close(values, tol=1000)
+    if np.iscomplexobj(real_values):
+        return np.abs(values), "|g(t)|"
+    return np.asarray(real_values, dtype=float), "g(t)"
+
+
+def add_top_omega_axis(ax, x_pos=0.13, y_pos=0.92):
+    from sjh_learn.utils.core.normalization import ParaNormalizer
+
+    secax = ax.secondary_xaxis(
+        "top",
+        functions=(
+            lambda energy_eV: energy_eV * ParaNormalizer.EV_TO_FS_INV,
+            lambda omega_fs_inv: omega_fs_inv / ParaNormalizer.EV_TO_FS_INV,
+        ),
+    )
+    secax.set_xlabel("")
+    secax.tick_params(axis="x", pad=1)
+    ax.text(
+        x_pos,
+        y_pos,
+        "Ang. Freq. (fs$^{-1}$)",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=12,
+        clip_on=False,
+    )
+    return secax
+
+
+def set_energy_axis(ax, e_min: float, e_max: float, *, n_ticks: int = 3):
+    ax.set_xlim(e_min, e_max)
+    ax.set_xticks(np.linspace(e_min, e_max, n_ticks))
+
+
+def set_axis_ylim_from_curves(ax, curves: list[np.ndarray], *, min_headroom: float = 0.12):
+    finite_values = []
+    for curve in curves:
+        curve = np.asarray(curve, dtype=float)
+        finite = curve[np.isfinite(curve)]
+        if finite.size > 0:
+            finite_values.append(finite)
+    if not finite_values:
+        return
+    all_values = np.concatenate(finite_values)
+    y_min = float(np.min(all_values))
+    y_max = float(np.max(all_values))
+    if y_min == y_max:
+        if y_max == 0.0:
+            y_min, y_max = -1.0, 1.0
+        else:
+            pad = 0.1 * abs(y_max)
+            y_min -= pad
+            y_max += pad
+    span = y_max - y_min
+    pad = max(min_headroom * span, 0.05)
+    ax.set_ylim(y_min - pad, y_max + pad)
+
+
 __all__ = [
     "plot_field",
     "plot_drive",
@@ -315,4 +412,11 @@ __all__ = [
     "plot_density_components",
     "plot_multilevel_components",
     "build_preview_figure",
+    "add_top_omega_axis",
+    "normalize_for_shape",
+    "plot_normalized_curve",
+    "real_if_close_or_abs_for_plot",
+    "set_axis_ylim_from_curves",
+    "set_energy_axis",
+    "sorted_xy_for_plot",
 ]

@@ -58,7 +58,7 @@ class NLevelPhysicalParams:
     """
 
     energies_eV: tuple[float, ...]
-    dipole_matrix_D: tuple[tuple[float, ...], ...]
+    dipole_matrix_D: tuple[tuple[complex, ...], ...]
     field_MV_per_cm: float
     laser_energy_eV: float
     t_start_fs: float

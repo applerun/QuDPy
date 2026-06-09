@@ -5,6 +5,7 @@ core 只负责参数、归一化、Hamiltonian / collapse operator 构造、求�
 """
 
 from .model import build_c_ops, build_lab_hamiltonian, compute_detuning, compute_energy_gap
+from .config import FORCE_RWA, RWA_DISABLED_MESSAGE, ensure_rwa_enabled
 from .normalization import ParaNormalizer
 from .parameters import (
     NLevelPhysicalParams,
@@ -24,6 +25,9 @@ from .solvers import (
 
 __all__ = [
     "DynamicsResult",
+    "FORCE_RWA",
+    "RWA_DISABLED_MESSAGE",
+    "ensure_rwa_enabled",
     "NLevelPhysicalParams",
     "NLevelSolverParams",
     "RelaxationChannel",

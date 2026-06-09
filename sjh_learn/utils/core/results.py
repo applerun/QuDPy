@@ -44,14 +44,14 @@ def _json_safe(value: Any) -> Any:
         return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
     if isinstance(value, Qobj):
         return {"qobj_shape": list(value.shape), "data": _complex_matrix_to_json(value.full())}
-    if isinstance(value, np.ndarray):
-        if np.iscomplexobj(value):
-            return _complex_matrix_to_json(value)
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
     if isinstance(value, complex):
         return {"real": float(value.real), "imag": float(value.imag)}
+    if isinstance(value, np.ndarray):
+        if np.iscomplexobj(value):
+            return _json_safe(value.tolist())
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
     if callable(value):
         return {"callable_serialized": False, "repr": repr(value)}
     if isinstance(value, dict):

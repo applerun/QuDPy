@@ -10,6 +10,7 @@ import numpy as np
 from qutip import Qobj, mesolve
 
 from sjh_learn.utils.checks import evaluate_sanity_checks
+from sjh_learn.utils.core.config import ensure_rwa_enabled
 from sjh_learn.utils.fields.solver_inputs import (
     CodeCompositeField,
     CodeConstantDrive,
@@ -108,6 +109,7 @@ def _run_rwa_case(
     rho0: Qobj | None = None,
     drive: CodeConstantDrive | CodeGaussianDrive | None = None,
 ) -> DynamicsResult:
+    ensure_rwa_enabled()
     times = _default_tlist(parameters)
     local_drive = _default_rwa_drive(parameters) if drive is None else drive
     solver_result = mesolve(
@@ -249,6 +251,7 @@ def run_case(
         print(f"Checkpoint not found, running simulation: {load_path}")
 
     if physical_params.solver_mode == "rwa" and physical_params.field is not None:
+        ensure_rwa_enabled()
         raise ValueError(
             "RWA mode currently derives its internal envelope from NLevelPhysicalParams pulse parameters, "
             "not from an explicit FieldPhyRoot. Leave field=None or use lab_exact for custom physical fields."
@@ -259,6 +262,7 @@ def run_case(
     if physical_params.solver_mode == "lab_exact":
         result = _run_lab_case(parameters, rho0=rho0, physical_params=physical_params, solver_params=solver)
     if physical_params.solver_mode == "rwa":
+        ensure_rwa_enabled()
         result = _run_rwa_case(parameters, rho0=rho0)
         result.physical_params = physical_params
         result.solver_params = solver

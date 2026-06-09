@@ -13,15 +13,29 @@ from sjh_learn.utils.core import (
     PureDephasingChannel,
     run_case,
 )
+from sjh_learn.utils.core import config as core_config
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.analysis import DynamicsAnalysis
-from sjh_learn.utils.analysis.observables import EPSILON0_F_PER_M, chi_two_level_linear
+from sjh_learn.utils.plotting import (
+    add_top_omega_axis,
+    normalize_for_shape,
+    plot_normalized_curve,
+    real_if_close_or_abs_for_plot,
+    set_axis_ylim_from_curves,
+    set_energy_axis,
+    sorted_xy_for_plot,
+)
+from sjh_learn.utils.spectroscopy.rwa import choose_rwa_reconstructed_p_over_e_response
+from sjh_learn.utils.spectroscopy.spectra import lab_frame_fft_response, rwa_fft_response
+from sjh_learn.utils.spectroscopy.theory import EPSILON0_F_PER_M, chi_two_level_linear, gamma2_fs_inv_from_T1_Tphi
 from sjh_learn.utils.io import save_result_case
 
 
 MV_PER_CM_TO_V_PER_M = 1.0e8
 DEBYE_TO_C_M = 3.33564e-30
-FORCE_RERUN = True
+FORCE_RERUN = False
+RUN_ONLY = "few_cycle_ultrastrong_with_perm"
+
 
 
 
@@ -33,11 +47,12 @@ class VariantConfig:
     pulse_sigma_fs: float
     T1_fs: Optional[float]
     Tphi_fs: Optional[float]
-    dipole_matrix_D: tuple[tuple[float, float], tuple[float, float]]
+    dipole_matrix_D: tuple[tuple[complex, complex], tuple[complex, complex]]
     baseline_delta_text: str
     note: str
     plot_e_min: float = 1.50
     plot_e_max: float = 1.60
+    compute_rwa: bool = False
 
 
 def make_analysis_from_result(result):
@@ -52,342 +67,9 @@ def get_coherence(analysis: DynamicsAnalysis, pair=(0, 1)) -> np.ndarray:
     return analysis.rho12(pair=pair)
 
 
-def apply_window(values: np.ndarray, window: str | None) -> np.ndarray:
-    if window is None or window == "none":
-        return values
-    if window == "hann":
-        return values * np.hanning(values.size)
-    raise ValueError("window must be None, 'none', or 'hann'.")
-
-
-def safe_complex_divide(
-    numerator: np.ndarray,
-    denominator: np.ndarray,
-    *,
-    rel_threshold: float = 1e-6,
-) -> tuple[np.ndarray, np.ndarray]:
-    denominator_abs = np.abs(denominator)
-    max_denominator = float(np.max(denominator_abs))
-    if max_denominator == 0.0:
-        raise ValueError("The input spectrum is identically zero.")
-    valid = denominator_abs > rel_threshold * max_denominator
-    ratio = np.full_like(numerator, np.nan + 1j * np.nan, dtype=np.complex128)
-    ratio[valid] = numerator[valid] / denominator[valid]
-    return ratio, valid
-
-
-def normalize_for_shape(y: np.ndarray) -> np.ndarray:
-    y = np.asarray(y)
-    if np.iscomplexobj(y):
-        y = np.real(y)
-    y = y.astype(float)
-    finite = np.isfinite(y)
-    if not np.any(finite):
-        return y
-    scale = np.nanmax(np.abs(y[finite]))
-    if scale == 0.0:
-        return y
-    return y / scale
-
-
-def sorted_xy_for_plot(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    x = np.asarray(x, dtype=float)
-    y = np.asarray(y)
-    finite = np.isfinite(x) & np.isfinite(y)
-    x = x[finite]
-    y = y[finite]
-    if x.size == 0:
-        return x, y
-    order = np.argsort(x)
-    return x[order], y[order]
-
-
-def plot_normalized_curve(ax, x, y, *, label: str, **plot_kwargs) -> np.ndarray:
-    x, y = sorted_xy_for_plot(x, y)
-    if x.size == 0:
-        return np.array([], dtype=float)
-    y_norm = normalize_for_shape(y)
-    ax.plot(x, y_norm, label=label, **plot_kwargs)
-    return y_norm
-
-
-def add_top_omega_axis(ax,x_pos = 0.13 ,y_pos = 0.92):
-    secax = ax.secondary_xaxis(
-        "top",
-        functions=(
-            lambda energy_eV: energy_eV * ParaNormalizer.EV_TO_FS_INV,
-            lambda omega_fs_inv: omega_fs_inv / ParaNormalizer.EV_TO_FS_INV,
-        ),
-    )
-    secax.set_xlabel("")
-    secax.tick_params(axis="x", pad=1)
-    # Keep this label attached to the top x-axis, but move it away from the left y-axis.
-    ax.text(
-        x_pos,
-        y_pos,
-        "Ang. Freq. (fs$^{-1}$)",
-        transform=ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=12,
-        clip_on=False,
-    )
-    return secax
-
-def set_energy_axis(ax, e_min: float, e_max: float, *, n_ticks: int = 3):
-    ax.set_xlim(e_min, e_max)
-    ax.set_xticks(np.linspace(e_min, e_max, n_ticks))
-
-
 def result_ckp_path(output_dir: Path, case_name: str) -> Path:
     return output_dir / "res_per_case" / case_name / "data" / "result.ckp"
 
-
-def set_axis_ylim_from_curves(ax, curves: list[np.ndarray], *, min_headroom: float = 0.12):
-    finite_values = []
-    for curve in curves:
-        curve = np.asarray(curve, dtype=float)
-        finite = curve[np.isfinite(curve)]
-        if finite.size > 0:
-            finite_values.append(finite)
-    if not finite_values:
-        return
-    all_values = np.concatenate(finite_values)
-    y_min = float(np.min(all_values))
-    y_max = float(np.max(all_values))
-    if y_min == y_max:
-        if y_max == 0.0:
-            y_min, y_max = -1.0, 1.0
-        else:
-            pad = 0.1 * abs(y_max)
-            y_min -= pad
-            y_max += pad
-    span = y_max - y_min
-    pad = max(min_headroom * span, 0.05)
-    ax.set_ylim(y_min - pad, y_max + pad)
-
-
-def fft_pulse_response(
-    *,
-    t_fs: np.ndarray,
-    E_MV_per_cm: np.ndarray,
-    P_C_per_m2: np.ndarray,
-    rho12: np.ndarray,
-    window: str | None = "hann",
-    subtract_mean: bool = True,
-    rel_threshold: float = 1e-6,
-    zero_padding_factor: int = 4,
-) -> dict[str, np.ndarray]:
-    t_fs = np.asarray(t_fs, dtype=float)
-    E_MV_per_cm = np.asarray(E_MV_per_cm, dtype=float)
-    P_C_per_m2 = np.asarray(P_C_per_m2, dtype=np.complex128)
-    rho12 = np.asarray(rho12, dtype=np.complex128)
-
-    dt = np.diff(t_fs)
-    if dt.size == 0 or not np.allclose(dt, dt[0], rtol=1e-5, atol=1e-10):
-        raise ValueError("FFT requires a uniformly sampled time axis with at least two points.")
-
-    E_signal = E_MV_per_cm.astype(np.complex128)
-    P_signal = P_C_per_m2.astype(np.complex128)
-    rho_signal = rho12.astype(np.complex128)
-    if subtract_mean:
-        E_signal = E_signal - np.mean(E_signal)
-        P_signal = P_signal - np.mean(P_signal)
-        rho_signal = rho_signal - np.mean(rho_signal)
-
-    n_samples = t_fs.size
-    n_fft_target = int(n_samples * zero_padding_factor)
-    n_fft = 1 << int(np.ceil(np.log2(max(n_fft_target, n_samples))))
-
-    E_fft = np.fft.fft(apply_window(E_signal, window), n=n_fft)
-    P_fft = np.fft.fft(apply_window(P_signal, window), n=n_fft)
-    rho_fft = np.fft.fft(apply_window(rho_signal, window), n=n_fft)
-
-    freq_fs_inv = np.fft.fftfreq(n_fft, d=float(dt[0]))
-    omega_fs_inv = 2.0 * np.pi * freq_fs_inv
-    energy_eV = omega_fs_inv / ParaNormalizer.EV_TO_FS_INV
-
-    P_over_E, valid_E = safe_complex_divide(P_fft, E_fft, rel_threshold=rel_threshold)
-    rho_over_E, _ = safe_complex_divide(rho_fft, E_fft, rel_threshold=rel_threshold)
-
-    pos = freq_fs_inv > 0
-    mask = pos & valid_E
-
-    return {
-        "omega_fs_inv": omega_fs_inv[mask],
-        "energy_eV": energy_eV[mask],
-        "E_fft": E_fft[mask],
-        "P_fft": P_fft[mask],
-        "rho12_fft": rho_fft[mask],
-        "P_over_E": P_over_E[mask],
-        "rho12_over_E": rho_over_E[mask],
-        "abs_E_fft": np.abs(E_fft[mask]),
-        "abs_rho12_over_E": np.abs(rho_over_E[mask]),
-        "im_rho12_over_E": np.imag(rho_over_E[mask]),
-        "omega_im_rho12_over_E": omega_fs_inv[mask] * np.imag(rho_over_E[mask]),
-        "neg_omega_im_P_over_E": -omega_fs_inv[mask] * np.imag(P_over_E[mask]),
-    }
-
-
-def fft_rwa_response(
-    *,
-    t_fs: np.ndarray,
-    g_fs_inv: np.ndarray,
-    rho12_rwa: np.ndarray,
-    laser_energy_eV: float,
-    window: str | None = "hann",
-    subtract_mean: bool = False,
-    rel_threshold: float = 1e-6,
-    zero_padding_factor: int = 4,
-) -> dict[str, np.ndarray]:
-    t_fs = np.asarray(t_fs, dtype=float)
-    g_fs_inv = np.asarray(g_fs_inv, dtype=float)
-    rho12_rwa = np.asarray(rho12_rwa, dtype=np.complex128)
-
-    dt = np.diff(t_fs)
-    if dt.size == 0 or not np.allclose(dt, dt[0], rtol=1e-5, atol=1e-10):
-        raise ValueError("FFT requires a uniformly sampled time axis with at least two points.")
-
-    g_signal = g_fs_inv.astype(np.complex128)
-    rho_signal = rho12_rwa.astype(np.complex128)
-    if subtract_mean:
-        g_signal = g_signal - np.mean(g_signal)
-        rho_signal = rho_signal - np.mean(rho_signal)
-
-    n_samples = t_fs.size
-    n_fft_target = int(n_samples * zero_padding_factor)
-    n_fft = 1 << int(np.ceil(np.log2(max(n_fft_target, n_samples))))
-
-    g_fft = np.fft.fft(apply_window(g_signal, window), n=n_fft)
-    rho_fft = np.fft.fft(apply_window(rho_signal, window), n=n_fft)
-
-    freq_offset_fs_inv = np.fft.fftfreq(n_fft, d=float(dt[0]))
-    omega_offset_fs_inv = 2.0 * np.pi * freq_offset_fs_inv
-    energy_eV = laser_energy_eV + omega_offset_fs_inv / ParaNormalizer.EV_TO_FS_INV
-
-    rho_over_g, valid_g = safe_complex_divide(rho_fft, g_fft, rel_threshold=rel_threshold)
-    idx = np.where(valid_g)[0]
-
-    return {
-        "omega_offset_fs_inv": omega_offset_fs_inv[idx],
-        "energy_eV": energy_eV[idx],
-        "g_fft": g_fft[idx],
-        "rho12_rwa_over_g": rho_over_g[idx],
-        "abs_g_fft": np.abs(g_fft[idx]),
-        "abs_rho12_rwa_over_g": np.abs(rho_over_g[idx]),
-        "im_rho12_rwa_over_g": np.imag(rho_over_g[idx]),
-        "omega_im_rho12_rwa_over_g": omega_offset_fs_inv[idx] * np.imag(rho_over_g[idx]),
-    }
-
-
-
-def reconstruct_rwa_lab_polarization_C_per_m2(
-    *,
-    t_fs: np.ndarray,
-    rho12_rwa: np.ndarray,
-    variant: VariantConfig,
-    number_density_m3: float,
-    laser_energy_eV: float,
-    carrier_sign: int,
-) -> np.ndarray:
-    """Reconstruct a lab-frame polarization from the RWA coherence.
-
-    This is a diagnostic quantity. RWA stores a slow coherence, so to compare it
-    with lab-frame P(w)/E(w), we multiply the optical carrier back and then use
-    the off-diagonal dipole contribution:
-
-        P(t) ~= N * mu_ge * [rho_ge^lab(t) + conj(rho_ge^lab(t))].
-
-    Diagonal permanent-dipole contributions are not reconstructed here because
-    they require population terms and mainly live near zero/baseband frequency.
-    """
-    if carrier_sign not in (-1, 1):
-        raise ValueError("carrier_sign must be -1 or +1.")
-
-    t_fs = np.asarray(t_fs, dtype=float)
-    rho12_rwa = np.asarray(rho12_rwa, dtype=np.complex128)
-    mu_ge_D = float(variant.dipole_matrix_D[0][1])
-    omega_L_fs_inv = laser_energy_eV * ParaNormalizer.EV_TO_FS_INV
-
-    rho12_lab_like = rho12_rwa * np.exp(1j * carrier_sign * omega_L_fs_inv * t_fs)
-    polarization = (
-        float(number_density_m3)
-        * DEBYE_TO_C_M
-        * mu_ge_D
-        * (rho12_lab_like + np.conjugate(rho12_lab_like))
-    )
-    return np.asarray(polarization.real, dtype=float)
-
-
-def normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
-    a = np.asarray(a, dtype=float)
-    b = np.asarray(b, dtype=float)
-    finite = np.isfinite(a) & np.isfinite(b)
-    if np.count_nonzero(finite) < 3:
-        return -np.inf
-    aa = normalize_for_shape(a[finite])
-    bb = normalize_for_shape(b[finite])
-    aa = aa - np.mean(aa)
-    bb = bb - np.mean(bb)
-    denom = float(np.sqrt(np.sum(aa * aa) * np.sum(bb * bb)))
-    if denom == 0.0:
-        return -np.inf
-    return float(np.sum(aa * bb) / denom)
-
-
-def choose_rwa_reconstructed_p_over_e_response(
-    *,
-    t_fs: np.ndarray,
-    E_t: np.ndarray,
-    rho12_rwa_t: np.ndarray,
-    rho12_lab_t: np.ndarray,
-    variant: VariantConfig,
-    number_density_m3: float,
-    laser_energy_eV: float,
-    lab_reference_response: dict[str, np.ndarray],
-    e_min: float = 1.4,
-    e_max: float = 1.7,
-) -> tuple[np.ndarray, dict[str, np.ndarray], str]:
-    """Try both carrier signs and keep the one closer to lab -w Im[P/E]."""
-    best_score = -np.inf
-    best_P = None
-    best_response = None
-    best_label = "unknown carrier sign"
-
-    reference = lab_reference_response["neg_omega_im_P_over_E"]
-    for sign in (-1, 1):
-        P_recon = reconstruct_rwa_lab_polarization_C_per_m2(
-            t_fs=t_fs,
-            rho12_rwa=rho12_rwa_t,
-            variant=variant,
-            number_density_m3=number_density_m3,
-            laser_energy_eV=laser_energy_eV,
-            carrier_sign=sign,
-        )
-        response = fft_pulse_response(
-            t_fs=t_fs,
-            E_MV_per_cm=E_t,
-            P_C_per_m2=P_recon,
-            rho12=rho12_lab_t,
-            window="hann",
-            subtract_mean=True,
-            rel_threshold=1e-5,
-            zero_padding_factor=4,
-        )
-        band = (response["energy_eV"] >= e_min) & (response["energy_eV"] <= e_max)
-        score = normalized_correlation(
-            response["neg_omega_im_P_over_E"][band],
-            reference[band],
-        )
-        if score > best_score:
-            best_score = score
-            best_P = P_recon
-            best_response = response
-            best_label = f"rho12_RWA * exp({sign:+d} i omega_L t), corr={score:.3f}"
-
-    if best_P is None or best_response is None:
-        raise RuntimeError("Failed to reconstruct RWA lab-frame polarization.")
-    return best_P, best_response, best_label
 
 def make_params(
     *,
@@ -445,15 +127,6 @@ def make_params(
     )
 
 
-def gamma2_fs_inv_from_variant(variant: VariantConfig) -> float:
-    gamma2 = 0.0
-    if variant.T1_fs is not None:
-        gamma2 += 0.5 / variant.T1_fs
-    if variant.Tphi_fs is not None:
-        gamma2 += 1.0 / variant.Tphi_fs
-    return gamma2
-
-
 def run_variant(
     *,
     variant: VariantConfig,
@@ -467,6 +140,8 @@ def run_variant(
     number_density_m3: float,
 ) -> dict[str, object]:
     print(f"Running variant: {variant.name} ({variant.label})")
+    if variant.compute_rwa and not core_config.FORCE_RWA:
+        raise RuntimeError(core_config.RWA_DISABLED_MESSAGE)
     lab_params = make_params(
         variant=variant,
         energy_gap_eV=energy_gap_eV,
@@ -476,83 +151,49 @@ def run_variant(
         dt_fs=dt_fs,
         solver_mode="lab_exact",
     )
-    rwa_params = replace(lab_params, solver_mode="rwa")
 
     lab_case_name = f"{variant.name}_lab_exact"
-    rwa_case_name = f"{variant.name}_rwa"
     lab_ckp = result_ckp_path(output_dir, lab_case_name)
-    rwa_ckp = result_ckp_path(output_dir, rwa_case_name)
 
     lab_result = run_case(
         lab_params,
         load_ckp=lab_ckp,
         force_run=FORCE_RERUN,
     )
-    rwa_result = run_case(
-        rwa_params,
-        load_ckp=rwa_ckp,
-        force_run=FORCE_RERUN,
-    )
     lab_analysis = make_analysis_from_result(lab_result)
-    rwa_analysis = make_analysis_from_result(rwa_result)
 
     t_fs = lab_analysis.time_fs()
     P_t = lab_analysis.full_polarization_C_per_m2(number_density_m3=number_density_m3)
     E_t, _, _ = lab_analysis.input_signal(kind="field")
     rho12_lab_t = get_coherence(lab_analysis, pair=(0, 1))
 
-    t_rwa_fs = rwa_analysis.time_fs()
-    if not np.allclose(t_fs, t_rwa_fs, rtol=1e-8, atol=1e-10):
-        raise ValueError("lab_exact and RWA time axes do not match.")
-    g_t, _, _ = rwa_analysis.input_signal(kind="drive")
-    rho12_rwa_t = get_coherence(rwa_analysis, pair=(0, 1))
-
-    lab_response = fft_pulse_response(
+    lab_response = lab_frame_fft_response(
         t_fs=t_fs,
         E_MV_per_cm=E_t,
         P_C_per_m2=P_t,
-        rho12=rho12_lab_t,
+        rhoij=rho12_lab_t,
         window="hann",
         subtract_mean=True,
         rel_threshold=1e-5,
         zero_padding_factor=4,
     )
-    rwa_response = fft_rwa_response(
-        t_fs=t_fs,
-        g_fs_inv=g_t,
-        rho12_rwa=rho12_rwa_t,
-        laser_energy_eV=laser_energy_eV,
-        window="hann",
-        subtract_mean=False,
-        rel_threshold=1e-5,
-        zero_padding_factor=4,
-    )
-
-    P_rwa_recon_t, rwa_recon_p_response, rwa_recon_carrier_label = choose_rwa_reconstructed_p_over_e_response(
-        t_fs=t_fs,
-        E_t=E_t,
-        rho12_rwa_t=rho12_rwa_t,
-        rho12_lab_t=rho12_lab_t,
-        variant=variant,
-        number_density_m3=number_density_m3,
-        laser_energy_eV=laser_energy_eV,
-        lab_reference_response=lab_response,
-        e_min=variant.plot_e_min,
-        e_max=variant.plot_e_max,
-    )
 
     omega_fs_inv = lab_response["omega_fs_inv"]
-    gamma2_fs_inv = gamma2_fs_inv_from_variant(variant)
+    gamma2_fs_inv = gamma2_fs_inv_from_T1_Tphi(variant.T1_fs, variant.Tphi_fs)
     chi = chi_two_level_linear(
         omega_fs_inv=omega_fs_inv,
         omega_eg_fs_inv=energy_gap_eV * ParaNormalizer.EV_TO_FS_INV,
-        mu_ge_D=mu_ge_D,
+        mu_ge_D=np.asarray(variant.dipole_matrix_D, dtype=np.complex128)[0, 1],
         gamma2_fs_inv=gamma2_fs_inv,
         number_density_m3=number_density_m3,
         population_difference=1.0,
     )
     theory_P_over_E_MVcm = EPSILON0_F_PER_M * chi * MV_PER_CM_TO_V_PER_M
-    theory_abs_like = -omega_fs_inv * np.imag(theory_P_over_E_MVcm)
+    # chi_two_level_linear() follows the analytic/physics Fourier convention, where
+    # the absorptive part is +omega * Im[P/E]. The numerical FFT-based lab
+    # spectrum still uses neg_omega_im_P_over_E because np.fft.fft has the
+    # opposite sign convention for positive frequencies.
+    theory_abs_like = omega_fs_inv * np.imag(theory_P_over_E_MVcm)
 
     save_result_case(
         lab_result,
@@ -563,15 +204,65 @@ def run_variant(
         append_results_csv=True,
         save_populations_csv=False,
     )
-    save_result_case(
-        rwa_result,
-        output_dir,
-        output_preview=True,
-        case_name=rwa_case_name,
-        example_name="cw_pulse_absorption_casewise_rwa",
-        append_results_csv=True,
-        save_populations_csv=False,
-    )
+
+    if variant.compute_rwa:
+        rwa_params = replace(lab_params, solver_mode="rwa")
+        rwa_case_name = f"{variant.name}_rwa"
+        rwa_ckp = result_ckp_path(output_dir, rwa_case_name)
+
+        rwa_result = run_case(
+            rwa_params,
+            load_ckp=rwa_ckp,
+            force_run=FORCE_RERUN,
+        )
+        rwa_analysis = make_analysis_from_result(rwa_result)
+
+        t_rwa_fs = rwa_analysis.time_fs()
+        if not np.allclose(t_fs, t_rwa_fs, rtol=1e-8, atol=1e-10):
+            raise ValueError("lab_exact and RWA time axes do not match.")
+        g_t, _, _ = rwa_analysis.input_signal(kind="drive")
+        rho12_rwa_t = get_coherence(rwa_analysis, pair=(0, 1))
+
+        rwa_response = rwa_fft_response(
+            t_fs=t_fs,
+            g_fs_inv=g_t,
+            rho12_rwa=rho12_rwa_t,
+            laser_energy_eV=laser_energy_eV,
+            window="hann",
+            subtract_mean=False,
+            rel_threshold=1e-5,
+            zero_padding_factor=4,
+        )
+
+        P_rwa_recon_t, rwa_recon_p_response, rwa_recon_carrier_label = choose_rwa_reconstructed_p_over_e_response(
+            t_fs=t_fs,
+            E_t=E_t,
+            rho12_rwa_t=rho12_rwa_t,
+            rho12_lab_t=rho12_lab_t,
+            dipole_matrix_D=variant.dipole_matrix_D,
+            number_density_m3=number_density_m3,
+            laser_energy_eV=laser_energy_eV,
+            lab_reference_response=lab_response,
+            energy_window_eV=(variant.plot_e_min, variant.plot_e_max),
+        )
+
+        save_result_case(
+            rwa_result,
+            output_dir,
+            output_preview=True,
+            case_name=rwa_case_name,
+            example_name="cw_pulse_absorption_casewise_rwa",
+            append_results_csv=True,
+            save_populations_csv=False,
+        )
+    else:
+        print(f"Skipping RWA for variant: {variant.name}")
+        g_t = np.full_like(t_fs, np.nan + 0j, dtype=np.complex128)
+        rho12_rwa_t = np.full_like(rho12_lab_t, np.nan + 0j, dtype=np.complex128)
+        P_rwa_recon_t = np.full_like(t_fs, np.nan, dtype=float)
+        rwa_response = None
+        rwa_recon_p_response = None
+        rwa_recon_carrier_label = "RWA skipped for this case"
 
     time_dir = output_dir / "time_domain_csv"
     spec_dir = output_dir / "spectrum_csv"
@@ -581,7 +272,8 @@ def run_variant(
     time_table = np.column_stack([
         t_fs,
         E_t,
-        g_t,
+        np.real(g_t),
+        np.imag(g_t),
         np.real(rho12_lab_t),
         np.imag(rho12_lab_t),
         np.real(rho12_rwa_t),
@@ -594,7 +286,7 @@ def run_variant(
         time_dir / f"{variant.name}_time_domain_signals.csv",
         time_table,
         delimiter=",",
-        header="time_fs,E_MV_per_cm,g_rwa_fs_inv,Re_rho12_lab,Im_rho12_lab,Re_rho12_rwa,Im_rho12_rwa,Re_P_C_per_m2,Im_P_C_per_m2,P_rwa_reconstructed_C_per_m2",
+        header="time_fs,E_MV_per_cm,Re_g_rwa_fs_inv,Im_g_rwa_fs_inv,Re_rho12_lab,Im_rho12_lab,Re_rho12_rwa,Im_rho12_rwa,Re_P_C_per_m2,Im_P_C_per_m2,P_rwa_reconstructed_C_per_m2",
         comments="",
     )
 
@@ -611,35 +303,37 @@ def run_variant(
         spec_dir / f"{variant.name}_lab_spectrum.csv",
         lab_spec,
         delimiter=",",
-        header="energy_eV,abs_E_fft,abs_rho12_over_E,im_rho12_over_E,omega_im_rho12_over_E,neg_omega_im_P_over_E,linear_theory_neg_omega_im_P_over_E",
-        comments="",
-    )
-    rwa_spec = np.column_stack([
-        rwa_response["energy_eV"],
-        rwa_response["abs_g_fft"],
-        rwa_response["abs_rho12_rwa_over_g"],
-        rwa_response["im_rho12_rwa_over_g"],
-        rwa_response["omega_im_rho12_rwa_over_g"],
-    ])
-    np.savetxt(
-        spec_dir / f"{variant.name}_rwa_spectrum.csv",
-        rwa_spec,
-        delimiter=",",
-        header="energy_eV,abs_g_fft,abs_rho12_rwa_over_g,im_rho12_rwa_over_g,omega_im_rho12_rwa_over_g",
+        header="energy_eV,abs_E_fft,abs_rho12_over_E,im_rho12_over_E,omega_im_rho12_over_E,neg_omega_im_P_over_E,linear_theory_abs_like",
         comments="",
     )
 
-    rwa_recon_spec = np.column_stack([
-        rwa_recon_p_response["energy_eV"],
-        rwa_recon_p_response["neg_omega_im_P_over_E"],
-    ])
-    np.savetxt(
-        spec_dir / f"{variant.name}_rwa_reconstructed_P_over_E_spectrum.csv",
-        rwa_recon_spec,
-        delimiter=",",
-        header="energy_eV,rwa_reconstructed_neg_omega_im_P_over_E",
-        comments="",
-    )
+    if variant.compute_rwa:
+        rwa_spec = np.column_stack([
+            rwa_response["energy_eV"],
+            rwa_response["abs_g_fft"],
+            rwa_response["abs_rho12_rwa_over_g"],
+            rwa_response["im_rho12_rwa_over_g"],
+            rwa_response["omega_im_rho12_rwa_over_g"],
+        ])
+        np.savetxt(
+            spec_dir / f"{variant.name}_rwa_spectrum.csv",
+            rwa_spec,
+            delimiter=",",
+            header="energy_eV,abs_g_fft,abs_rho12_rwa_over_g,im_rho12_rwa_over_g,omega_im_rho12_rwa_over_g",
+            comments="",
+        )
+
+        rwa_recon_spec = np.column_stack([
+            rwa_recon_p_response["energy_eV"],
+            rwa_recon_p_response["neg_omega_im_P_over_E"],
+        ])
+        np.savetxt(
+            spec_dir / f"{variant.name}_rwa_reconstructed_P_over_E_spectrum.csv",
+            rwa_recon_spec,
+            delimiter=",",
+            header="energy_eV,rwa_reconstructed_neg_omega_im_P_over_E",
+            comments="",
+        )
 
     return {
         "variant": variant,
@@ -652,7 +346,6 @@ def run_variant(
         "rwa_recon_carrier_label": rwa_recon_carrier_label,
         "theory_abs_like": theory_abs_like,
     }
-
 
 def build_lab_only_figure(record: dict[str, object], *, output_dir: Path, e_min: float, e_max: float) -> Path:
     style = {
@@ -706,7 +399,7 @@ def build_lab_only_figure(record: dict[str, object], *, output_dir: Path, e_min:
         curves.append(plot_normalized_curve(ax_resp, lab_response["energy_eV"][band_resp], -lab_response["im_rho12_over_E"][band_resp], label="norm -Im[rho12/E]", linewidth=2.2, color="C1", linestyle="--"))
         curves.append(plot_normalized_curve(ax_resp, lab_response["energy_eV"][band_resp], neg_omega_im_rho12[band_resp], label="norm -w Im[rho12/E]", linewidth=2.2, color="C2", linestyle="-."))
         curves.append(plot_normalized_curve(ax_resp, lab_response["energy_eV"][band_resp], lab_response["neg_omega_im_P_over_E"][band_resp], label="norm -w Im[P/E]", linewidth=2.4, color="C3", linestyle=":"))
-        curves.append(plot_normalized_curve(ax_resp, lab_response["energy_eV"][band_resp], -theory_abs_like[band_resp], label="linear theory", linewidth=2.4, color="black", linestyle="-"))
+        curves.append(plot_normalized_curve(ax_resp, lab_response["energy_eV"][band_resp], theory_abs_like[band_resp], label="linear theory", linewidth=2.4, color="black", linestyle="-"))
         ax_resp.set_title("Lab-frame response", pad=8)
         ax_resp.set_xlabel("Energy (eV)")
         ax_resp.set_ylabel("Normalized signal")
@@ -765,14 +458,15 @@ def build_lab_vs_rwa_figure(record: dict[str, object], *, output_dir: Path, e_mi
 
         # Panel 1: input t
         ax_right = ax_input_t.twinx()
+        g_t_plot, g_t_label = real_if_close_or_abs_for_plot(g_t)
         ax_input_t.plot(t_fs[time_window], E_t[time_window], linewidth=2.0, label="lab E(t)", color="C0")
-        ax_right.plot(t_fs[time_window], g_t[time_window], linestyle="--", linewidth=2.0, label="RWA g(t)", color="C1")
+        ax_right.plot(t_fs[time_window], g_t_plot[time_window], linestyle="--", linewidth=2.0, label=f"RWA {g_t_label}", color="C1")
         ax_input_t.set_title("Input t", pad=8)
         ax_input_t.set_xlabel("Time (fs)", labelpad=2)
         ax_input_t.set_ylabel("E(t) [MV/cm]", labelpad=2)
         ax_right.set_ylabel("g(t) [fs$^{-1}$]", labelpad=2)
         E_max = float(np.nanmax(np.abs(E_t[time_window]))) if np.any(time_window) else float(np.nanmax(np.abs(E_t)))
-        g_max = float(np.nanmax(np.abs(g_t[time_window]))) if np.any(time_window) else float(np.nanmax(np.abs(g_t)))
+        g_max = float(np.nanmax(np.abs(g_t_plot[time_window]))) if np.any(time_window) else float(np.nanmax(np.abs(g_t_plot)))
         if E_max == 0.0:
             E_max = 1.0
         if g_max == 0.0:
@@ -847,7 +541,7 @@ def build_lab_vs_rwa_figure(record: dict[str, object], *, output_dir: Path, e_mi
         # Panel 7: lab absorption vs theory
         curves = []
         curves.append(plot_normalized_curve(ax_theory, lab_response["energy_eV"][lab_band], lab_response["neg_omega_im_P_over_E"][lab_band], label="lab -w Im[P/E]", linewidth=2.3, color="C3"))
-        curves.append(plot_normalized_curve(ax_theory, lab_response["energy_eV"][lab_band], -record["theory_abs_like"][lab_band], label="linear theory", linewidth=2.3, color="black", linestyle="--"))
+        curves.append(plot_normalized_curve(ax_theory, lab_response["energy_eV"][lab_band], record["theory_abs_like"][lab_band], label="linear theory", linewidth=2.3, color="black", linestyle="--"))
         ax_theory.set_title("Lab absorption vs theory", pad=10)
         ax_theory.set_xlabel("Energy (eV)")
         ax_theory.set_ylabel("Normalized signal")
@@ -866,7 +560,7 @@ def build_lab_vs_rwa_figure(record: dict[str, object], *, output_dir: Path, e_mi
 
 
 def main():
-    output_dir = Path("outputs/cw_pulse_absorption_compare")
+    output_dir = Path("../scratch/outputs/cw_pulse_absorption_compare")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     energy_gap_eV = 1.55
@@ -885,6 +579,12 @@ def main():
 
     permanent_mu_gg_D = 0.0
     permanent_mu_ee_D = 10.0
+    # 自由设置跃迁偶极矩相位
+    phase_deg = 45.0
+    phase_rad = np.deg2rad(phase_deg)
+
+    mu_ge_complex = mu_ge_D * np.exp(1j * phase_rad)
+    mu_eg_complex = np.conjugate(mu_ge_complex)
 
     variants = [
         VariantConfig(
@@ -899,15 +599,51 @@ def main():
             note="No permanent dipole: mu_gg = 0 D, mu_ee = 0 D.",
         ),
         VariantConfig(
-            name="field_x10",
-            label="field ×10",
-            field_MV_per_cm=10.0 * base_field_MV_per_cm,
+            name = f"complex_transition_mu_phase_{int(phase_deg)}deg",
+            label = f"complex transition dipole, phase = {phase_deg:.0f} deg",
+            field_MV_per_cm = base_field_MV_per_cm,
+            pulse_sigma_fs = base_pulse_sigma_fs,
+            T1_fs = base_T1_fs,
+            Tphi_fs = base_Tphi_fs,
+            dipole_matrix_D = (
+                (0.0, mu_ge_complex),
+                (mu_eg_complex, 0.0),
+            ),
+            baseline_delta_text = (
+                f"transition dipole phase: mu_ge = {mu_ge_D:.1f} * exp(i {phase_deg:.0f} deg) D; "
+            ),
+            note = (
+                "Two-level gauge test with a complex transition dipole. "
+                "For a single isolated two-level system, changing this phase should not change physical observables, "
+                "although rho12 itself may acquire a different phase convention."
+            ),
+            plot_e_min = 1.50,
+            plot_e_max = 1.60,
+            compute_rwa = False,
+        ),
+        VariantConfig(
+            name="imag_transition_mu",
+            label="imaginary transition dipole",
+            field_MV_per_cm=base_field_MV_per_cm,
+            pulse_sigma_fs=base_pulse_sigma_fs,
+            T1_fs=base_T1_fs,
+            Tphi_fs=base_Tphi_fs,
+            dipole_matrix_D=((0.0, 1j * mu_ge_D), (-1j * mu_ge_D, 0.0)),
+            baseline_delta_text="transition dipole phase: mu_ge = 3 D -> 3i D; mu_eg = 3 D -> -3i D",
+            note="Hermitian complex transition dipole test. For a single two-level system this should be gauge-equivalent to the real-mu baseline in physical observables. RWA is intentionally skipped for this case because the current drive export path can still return an all-zero complex drive.",
+            compute_rwa=False,
+        ),
+        VariantConfig(
+            name="field_x5",
+            label="field ×5",
+            field_MV_per_cm=5 * base_field_MV_per_cm,
             pulse_sigma_fs=base_pulse_sigma_fs,
             T1_fs=base_T1_fs,
             Tphi_fs=base_Tphi_fs,
             dipole_matrix_D=((0.0, mu_ge_D), (mu_ge_D, 0.0)),
-            baseline_delta_text=f"E0: {base_field_MV_per_cm:.4g} → {10.0 * base_field_MV_per_cm:.4g} MV/cm (×10, +900%)",
+            baseline_delta_text=f"E0: {base_field_MV_per_cm:.4g} → {5 * base_field_MV_per_cm:.4g} MV/cm (+400%)",
             note="Only the field amplitude is changed relative to baseline.",
+            compute_rwa = False,
         ),
         VariantConfig(
             name="pulse_x1p5",
@@ -919,6 +655,7 @@ def main():
             dipole_matrix_D=((0.0, mu_ge_D), (mu_ge_D, 0.0)),
             baseline_delta_text=f"sigma: {base_pulse_sigma_fs:.2f} → {1.5 * base_pulse_sigma_fs:.2f} fs (×1.5, +50%)",
             note="Pulse is broader in time, so the input spectrum is narrower.",
+            compute_rwa = False,
         ),
         VariantConfig(
             name="with_permanent_dipole",
@@ -930,6 +667,7 @@ def main():
             dipole_matrix_D=((permanent_mu_gg_D, mu_ge_D), (mu_ge_D, permanent_mu_ee_D)),
             baseline_delta_text=f"add diagonal dipoles: mu_gg = {permanent_mu_gg_D:.1f} D, mu_ee = {permanent_mu_ee_D:.1f} D, Δmu_diag = {permanent_mu_ee_D - permanent_mu_gg_D:.1f} D",
             note="Chosen permanent dipole test case: only the excited-state diagonal dipole is nonzero.",
+            compute_rwa = False,
         ),
         VariantConfig(
             name="short_T1",
@@ -941,6 +679,7 @@ def main():
             dipole_matrix_D=((0.0, mu_ge_D), (mu_ge_D, 0.0)),
             baseline_delta_text=f"T1: {base_T1_fs:.1f} → 100.0 fs (-80%)",
             note="Population relaxation is made much faster than baseline.",
+            compute_rwa = False,
         ),
         VariantConfig(
             name="remove_T1",
@@ -952,6 +691,7 @@ def main():
             dipole_matrix_D=((0.0, mu_ge_D), (mu_ge_D, 0.0)),
             baseline_delta_text=f"remove T1: {base_T1_fs:.1f} fs → None",
             note="No population relaxation channel; only pure dephasing remains.",
+            compute_rwa = False,
         ),
         VariantConfig(
             name="remove_Tphi",
@@ -963,6 +703,7 @@ def main():
             dipole_matrix_D=((0.0, mu_ge_D), (mu_ge_D, 0.0)),
             baseline_delta_text=f"remove Tphi: {base_Tphi_fs:.1f} fs → None",
             note="No pure dephasing channel; only T1 contributes to gamma2.",
+            compute_rwa = False,
         ),
         VariantConfig(
             name="extreme_perm_strong_broad",
@@ -976,6 +717,7 @@ def main():
             note="Extreme two-level test: large diagonal dipole difference plus a strong, short pulse. Plot window is kept inside the main input bandwidth.",
             plot_e_min=1.15,
             plot_e_max=1.95,
+            compute_rwa = False,
         ),
         VariantConfig(
             name="few_cycle_ultrastrong_no_perm",
@@ -989,6 +731,7 @@ def main():
             note="Extreme two-level test: few-cycle, ultra-strong pulse to stress the positive-frequency/coherence approximation.",
             plot_e_min=0.85,
             plot_e_max=2.25,
+            compute_rwa = False,
         ),
         VariantConfig(
             name="few_cycle_ultrastrong_with_perm",
@@ -1000,14 +743,32 @@ def main():
             dipole_matrix_D=((0.0, mu_ge_D), (mu_ge_D, 20.0)),
             baseline_delta_text="E0: 1 → 100 MV/cm; sigma: 18.75 → 1.00 fs; mu_ee: 0 → 20 D",
             note="Extreme two-level test: combines a few-cycle strong pulse with a large diagonal dipole difference.",
-            plot_e_min=0.85,
-            plot_e_max=2.25,
+            plot_e_min=1.45,
+            plot_e_max=1.65,
         ),
+        VariantConfig(
+            name = "remove_T1_weak_pump",
+            label = "remove T1_weak_pump",
+            field_MV_per_cm = base_field_MV_per_cm / 5,
+            pulse_sigma_fs = base_pulse_sigma_fs,
+            T1_fs = None,
+            Tphi_fs = base_Tphi_fs,
+            dipole_matrix_D = ((0.0, mu_ge_D), (mu_ge_D, 0.0)),
+            baseline_delta_text = f"remove T1: {base_T1_fs:.1f} fs → None, 1/5 $E_0$",
+            note = "No population relaxation channel; only pure dephasing remains.",
+            compute_rwa = False,
+        ),
+
     ]
 
     lab_only_paths = []
     lab_vs_rwa_paths = []
-    for variant in variants:
+
+    selected_variants = variants if RUN_ONLY is None else [variant for variant in variants if variant.name == RUN_ONLY]
+    if not selected_variants:
+        raise ValueError(f"RUN_ONLY={RUN_ONLY!r} did not match any VariantConfig.name.")
+
+    for variant in selected_variants:
         record = run_variant(
             variant=variant,
             output_dir=output_dir,
@@ -1027,14 +788,17 @@ def main():
                 e_max=variant.plot_e_max,
             )
         )
-        lab_vs_rwa_paths.append(
-            build_lab_vs_rwa_figure(
-                record,
-                output_dir=output_dir,
-                e_min=variant.plot_e_min,
-                e_max=variant.plot_e_max,
+        if variant.compute_rwa:
+            lab_vs_rwa_paths.append(
+                build_lab_vs_rwa_figure(
+                    record,
+                    output_dir=output_dir,
+                    e_min=variant.plot_e_min,
+                    e_max=variant.plot_e_max,
+                )
             )
-        )
+        else:
+            print(f"Skipped lab-vs-RWA figure for {variant.name} because compute_rwa=False")
 
     print("Saved lab-only figures:")
     for path in lab_only_paths:
