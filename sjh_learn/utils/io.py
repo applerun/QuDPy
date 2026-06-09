@@ -715,7 +715,6 @@ def save_results_components_long(results: list[ResultLike], output_path: str | P
     combined.to_csv(path, index=False)
     return path
 
-
 def save_result_case(
     result: ResultLike,
     output_dir: str | Path,
@@ -738,12 +737,18 @@ def save_result_case(
     case_name: str | None = None,
     selected_elements: dict[str, tuple[int, int]] | None = None,
     append_results_csv: bool = True,
+    preview_population_axis_map: dict[int, str | int] | None = None,
+    preview_population_split_threshold: float = 0.1,
+    preview_component_pairs: list[tuple[int, int]] | tuple[tuple[int, int], ...] | None = None,
+    preview_max_pairs: int | None = 6,
+    preview_display_code_unit: bool = False,
 ) -> dict[str, Path]:
     root = Path(output_dir)
     name = _safe_case_name(case_name) if case_name is not None else _case_name(result)
     case_dir = root / "res_per_case" / name
     data_dir = case_dir / "data"
     figs_dir = case_dir / "figs"
+    component_dir = figs_dir / "component"
     case_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {"case_dir": case_dir}
 
@@ -761,20 +766,51 @@ def save_result_case(
         )
 
     generated_preview = False
-    local_preview_fig = fig if preview_fig is None else preview_fig
-    if output_preview and local_preview_fig is None:
-        from .plotting import build_preview_figure
+    generated_component_figs = False
 
-        local_preview_fig, _axes = build_preview_figure(result)
-        generated_preview = True
+    local_preview_fig = fig if preview_fig is None else preview_fig
+    local_component_figs = []
+
+    if output_preview:
+        from .plotting import (
+            build_component_figures,
+            build_preview_figure,
+        )
+
+        if local_preview_fig is None:
+            local_preview_fig, _axes = build_preview_figure(
+                result,
+                coherences=preview_component_pairs,
+                display_code_unit=preview_display_code_unit,
+                max_pairs=preview_max_pairs,
+                population_axis_map=preview_population_axis_map,
+                split_population_axes_threshold=preview_population_split_threshold,
+            )
+            generated_preview = True
+
+        local_component_figs = build_component_figures(
+            result,
+            coherences=preview_component_pairs,
+            max_pairs=preview_max_pairs,
+        )
+        generated_component_figs = True
 
     if output_preview and local_preview_fig is not None:
         preview_path = figs_dir / "preview.png"
         written["preview"] = save_figure(local_preview_fig, preview_path, dpi=preview_dpi)
         if generated_preview:
             import matplotlib.pyplot as plt
-
             plt.close(local_preview_fig)
+
+    if output_preview and local_component_figs:
+        component_dir.mkdir(parents=True, exist_ok=True)
+        import matplotlib.pyplot as plt
+
+        for stem, comp_fig in local_component_figs:
+            comp_path = component_dir / f"{stem}.png"
+            written[f"component_{stem}"] = save_figure(comp_fig, comp_path, dpi=preview_dpi)
+            if generated_component_figs:
+                plt.close(comp_fig)
 
     if full_fig is not None:
         full_path = figs_dir / "full.png"
@@ -811,11 +847,10 @@ def save_result_case(
             "max_hermiticity_error",
             "final_populations",
         ]
-        results_csv = root / "results.csv"
-        _append_results_csv_row(results_csv, header, _summary_row(name, result))
-        written["results_csv"] = results_csv
-    return written
+        row = _summary_row(name, result)
+        _append_results_csv_row(root / "results.csv", header, row)
 
+    return written
 
 @dataclass
 class QuantumResultIO:

@@ -6,6 +6,44 @@ import numpy as np
 
 from sjh_learn.utils.core.results import DynamicsResult
 
+def _line_styles(count: int) -> list:
+    """
+    Return a list of visually distinguishable matplotlib line styles.
+
+    The first four are standard named styles. The later ones use custom dash
+    patterns. If count exceeds the list length, styles are repeated cyclically.
+    """
+    base = [
+        "-",                    # solid
+        "--",                   # dashed
+        "-.",                   # dash-dot
+        ":",                    # dotted
+
+        (0, (5, 1)),            # dense dashed
+        (0, (3, 1, 1, 1)),      # dense dash-dot
+        (0, (1, 1)),            # dense dotted
+        (0, (7, 2)),            # long dashed
+
+        (0, (7, 2, 1, 2)),      # long dash-dot
+        (0, (9, 2, 2, 2)),      # long dash short dash
+        (0, (3, 2, 1, 2, 1, 2)),
+        (0, (5, 2, 5, 2, 1, 2)),
+
+        (0, (10, 3)),
+        (0, (10, 3, 2, 3)),
+        (0, (2, 2)),
+        (0, (2, 2, 8, 2)),
+
+        (0, (1, 3)),
+        (0, (4, 3)),
+        (0, (6, 3, 1, 3)),
+        (0, (8, 3, 1, 3, 1, 3)),
+    ]
+
+    if count <= len(base):
+        return base[:count]
+
+    return [base[i % len(base)] for i in range(count)]
 
 def _plasma_colors(count: int, *, start: float = 0.18, end: float = 0.88):
     import matplotlib.pyplot as plt
@@ -54,6 +92,14 @@ def _upper_triangular_pairs(dimension: int, max_pairs: int | None = None) -> lis
     if max_pairs is not None:
         return pairs[:max_pairs]
     return pairs
+
+
+def _normalize_axis_choice(value) -> str:
+    if value in (0, "0", "left", "Left", "LEFT", "l", "L"):
+        return "left"
+    if value in (1, "1", "right", "Right", "RIGHT", "r", "R"):
+        return "right"
+    raise ValueError(f"Unsupported axis choice: {value!r}. Use 'left'/'right' or 0/1.")
 
 
 def plot_field(
@@ -148,6 +194,119 @@ def plot_populations(result: DynamicsResult, ax=None, populations=None, *, title
     ax.legend()
     return fig, ax
 
+
+def plot_population_preview(
+    result: DynamicsResult,
+    ax=None,
+    *,
+    populations=None,
+    title: str | None = None,
+    population_axis_map: dict[int, str | int] | None = None,
+    split_population_axes_threshold: float = 0.1,
+):
+    fig, ax = _new_axes(ax)
+    times, time_label = _times_and_label(result)
+    density = result.density_array()
+
+    population_indices = list(range(result.dimension())) if populations is None else list(populations)
+    curves = {index: density[:, index, index].real for index in population_indices}
+
+    total_span = float(sum(np.nanmax(values) - np.nanmin(values) for values in curves.values()))
+    use_single_axis = total_span > split_population_axes_threshold or len(population_indices) <= 1
+
+    if population_axis_map is None:
+        normalized_axis_map = {
+            index: ("left" if index == 0 else "right")
+            for index in population_indices
+        }
+    else:
+        normalized_axis_map = {}
+        for index in population_indices:
+            default_side = "left" if index == 0 else "right"
+            side = population_axis_map.get(index, default_side)
+            normalized_axis_map[index] = _normalize_axis_choice(side)
+
+    if use_single_axis:
+        styles = _line_styles(len(population_indices))
+        line_handles = []
+        line_labels = []
+
+        for linestyle, index in zip(styles, population_indices):
+            line, = ax.plot(
+                times,
+                curves[index],
+                label=fr"$\rho_{{{index}{index}}}$",
+                color="black",
+                linestyle=linestyle,
+                linewidth=2.0,
+            )
+            line_handles.append(line)
+            line_labels.append(line.get_label())
+
+        ax.set_ylabel("Population")
+        ax.legend(line_handles, line_labels, loc="best")
+
+    else:
+        from itertools import cycle
+
+        ax_right = ax.twinx()
+
+        left_handles = []
+        right_handles = []
+
+        base_styles = _line_styles(4)
+        left_style_iter = cycle(base_styles)
+        right_style_iter = cycle(base_styles)
+
+        for index in population_indices:
+            axis_side = normalized_axis_map[index]
+
+            if axis_side == "left":
+                target_ax = ax
+                color = "black"
+                linestyle = next(left_style_iter)
+            else:
+                target_ax = ax_right
+                color = "red"
+                linestyle = next(right_style_iter)
+
+            label = fr"$\rho_{{{index}{index}}}$ ({axis_side})"
+
+            line, = target_ax.plot(
+                times,
+                curves[index],
+                label=label,
+                color=color,
+                linestyle=linestyle,
+                linewidth=2.0,
+            )
+
+            if axis_side == "left":
+                left_handles.append(line)
+            else:
+                right_handles.append(line)
+
+        ax.set_ylabel("Population (left)")
+        ax_right.set_ylabel("Population (right)")
+
+        ax.yaxis.label.set_color("black")
+        ax.tick_params(axis="y", colors="black")
+        ax.spines["left"].set_color("black")
+
+        ax_right.yaxis.label.set_color("red")
+        ax_right.tick_params(axis="y", colors="red")
+        ax_right.spines["right"].set_color("red")
+
+        handles = left_handles + right_handles
+        labels = [handle.get_label() for handle in handles]
+        ax.legend(handles, labels, loc="best")
+
+    ax.set_xlabel(time_label)
+    if title is not None:
+        ax.set_title(title)
+
+    ax.grid(True, alpha=0.3)
+    return fig, ax
 
 def plot_coherences(
     result: DynamicsResult,
@@ -286,25 +445,87 @@ def build_preview_figure(
     coherences=None,
     display_code_unit: bool = False,
     max_pairs: int | None = 6,
+    population_axis_map: dict[int, str | int] | None = None,
+    split_population_axes_threshold: float = 0.1,
 ):
-    if result.dimension() == 2:
-        fig, axes = plot_density_components(result, include_drive=True, display_code_unit=display_code_unit)
-    else:
-        import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(3, 1, figsize=(5.6*1.5, 4.9*1.5), sharex=True)
-        selected_coherences = coherences
-        if selected_coherences is None:
-            selected_coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
-        plot_populations(result, ax=axes[0], title=_mode_title(result))
-        axes[0].set_xlabel("")
-        plot_coherence_abs(result, ax=axes[1], coherences=selected_coherences, max_pairs=max_pairs)
-        axes[1].set_xlabel("")
-        plot_coherence_phases(result, ax=axes[2], coherences=selected_coherences, max_pairs=max_pairs)
+    fig, axes = plt.subplots(4, 1, figsize=(8.6, 13.0), sharex=True)
+    selected_coherences = coherences
+    if selected_coherences is None:
+        selected_coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
+
+    plot_drive(result, ax=axes[0], display_code_unit=display_code_unit)
+    axes[0].set_title(_mode_title(result))
+    axes[0].set_xlabel("")
+
+    plot_population_preview(
+        result,
+        ax=axes[1],
+        population_axis_map=population_axis_map,
+        split_population_axes_threshold=split_population_axes_threshold,
+    )
+    axes[1].set_xlabel("")
+
+    plot_coherence_abs(result, ax=axes[2], coherences=selected_coherences, max_pairs=max_pairs)
+    axes[2].set_xlabel("")
+
+    plot_coherence_phases(result, ax=axes[3], coherences=selected_coherences, max_pairs=max_pairs)
+
     fig.tight_layout()
     return fig, axes
 
 
+def build_component_figures(
+    result: DynamicsResult,
+    *,
+    coherences=None,
+    max_pairs: int | None = 6,
+):
+    import matplotlib.pyplot as plt
+
+    times, time_label = _times_and_label(result)
+    selected_coherences = coherences
+    if selected_coherences is None:
+        selected_coherences = _upper_triangular_pairs(result.dimension(), max_pairs=max_pairs)
+
+    figures: list[tuple[str, object]] = []
+
+    for (i, j) in selected_coherences:
+        values = result.matrix_element(i, j)
+
+        fig, axes = plt.subplots(2, 1, figsize=(7.6, 5.6), sharex=True)
+
+        axes[0].plot(
+            times,
+            values.real,
+            color="black",
+            linestyle="-",
+            linewidth=2.0,
+            label=fr"$\mathrm{{Re}}(\rho_{{{i}{j}}})$",
+        )
+        axes[0].set_title(fr"$\rho_{{{i}{j}}}$ components")
+        axes[0].set_ylabel("Real part")
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
+
+        axes[1].plot(
+            times,
+            values.imag,
+            color="#E6B800",
+            linestyle="-",
+            linewidth=2.0,
+            label=fr"$\mathrm{{Im}}(\rho_{{{i}{j}}})$",
+        )
+        axes[1].set_xlabel(time_label)
+        axes[1].set_ylabel("Imag part")
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
+
+        fig.tight_layout()
+        figures.append((f"rho_{i}{j}", fig))
+
+    return figures
 def normalize_for_shape(y: np.ndarray) -> np.ndarray:
     y = np.asarray(y)
     if np.iscomplexobj(y):
@@ -406,17 +627,18 @@ __all__ = [
     "plot_field",
     "plot_drive",
     "plot_populations",
+    "plot_population_preview",
     "plot_coherences",
     "plot_coherence_abs",
     "plot_coherence_phases",
     "plot_density_components",
     "plot_multilevel_components",
     "build_preview_figure",
+    "build_component_figures",
     "add_top_omega_axis",
     "normalize_for_shape",
     "plot_normalized_curve",
     "real_if_close_or_abs_for_plot",
     "set_axis_ylim_from_curves",
     "set_energy_axis",
-    "sorted_xy_for_plot",
 ]
