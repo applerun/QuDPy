@@ -614,12 +614,13 @@ class DynamicsAnalysis:
         physical = self.result.physical_params
         if physical is None:
             return None
-        envelope = "gaussian" if physical.pulse_sigma_fs is not None else "constant"
+        field_payload = physical.field.to_dict() if getattr(physical, "field", None) is not None else {}
+        envelope = field_payload.get("envelope", "unknown")
         if self.result.mode == "rwa":
             return "gaussian_rwa_envelope" if envelope == "gaussian" else "constant_rwa_envelope"
         if getattr(physical, "field", None) is not None:
             return physical.field.__class__.__name__
-        return "GaussianCarrierFieldPhysical" if envelope == "gaussian" else "CarrierFieldPhysical"
+        return None
 
     def save_outputs(
         self,

@@ -97,8 +97,15 @@ def _lab_field_export_matches_solver_input(result: DynamicsResult) -> dict[str, 
         return {"passed": True, "skipped": "missing_physical_params_or_solver_field_callable"}
 
     # 这里检查输出/分析层使用的物理电场是否直接来自 solver 实际 field callable。
-    # solver field 是无量纲 code-unit 时间函数；乘以 field_MV_per_cm 后才是 MV/cm。
-    expected = np.asarray(result.drive(result.times), dtype=float) * float(result.physical_params.field_MV_per_cm)
+    if hasattr(result.drive, "physical"):
+        expected = np.asarray(result.drive.physical(result.times_fs), dtype=float)
+    else:
+        reference = None
+        if isinstance(result.drive_dict, dict):
+            reference = result.drive_dict.get("reference_field_MV_per_cm")
+        if reference is None:
+            return {"passed": False, "reason": "lab_exact drive metadata lacks reference_field_MV_per_cm."}
+        expected = np.asarray(result.drive(result.times), dtype=float) * float(reference)
     exported = result.field_MV_per_cm_values()
     if exported is None:
         return {"passed": False, "reason": "field_MV_per_cm_values returned None for lab_exact result."}
@@ -107,7 +114,7 @@ def _lab_field_export_matches_solver_input(result: DynamicsResult) -> dict[str, 
         "max_difference_MV_per_cm": max_difference,
         "threshold_MV_per_cm": 1e-12,
         "passed": bool(max_difference < 1e-12),
-        "source": "solver_field_callable_times_physical_field_MV_per_cm",
+        "source": "solver_bound_physical_field_callable",
     }
 
 

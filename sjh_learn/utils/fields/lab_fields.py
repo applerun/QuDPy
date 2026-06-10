@@ -13,9 +13,20 @@ from typing import Any
 
 import numpy as np
 
+HBAR_J_S = 1.054571817e-34
+E_CHARGE_C = 1.602176634e-19
+FS_TO_S = 1e-15
+EV_TO_FS_INV = (E_CHARGE_C / HBAR_J_S) * FS_TO_S
+
 
 def _metadata_copy(metadata: dict[str, Any] | None) -> dict[str, Any]:
     return dict(metadata or {})
+
+
+def _energy_eV_to_fs_inv(energy_eV: float) -> float:
+    """把 photon energy 从 eV 转成 angular frequency，单位 fs^-1。"""
+
+    return float(energy_eV) * EV_TO_FS_INV
 
 
 class FieldPhyRoot(ABC):
@@ -116,6 +127,7 @@ class CarrierFieldPhysical(FieldPhyRoot):
             "E0_MV_per_cm": float(self.E0_MV_per_cm),
             "peak_E_MV_per_cm": 2.0 * float(self.E0_MV_per_cm),
             "omega_L_fs_inv": float(self.omega_L_fs_inv),
+            "laser_energy_eV": metadata.get("laser_energy_eV"),
             "phase_rad": float(self.phase_rad),
             "envelope": "constant",
             "expression": "E(t_fs) = 2 E0 cos(omega_L t_fs + phase)",
@@ -185,9 +197,12 @@ class GaussianCarrierFieldPhysical(FieldPhyRoot):
             "E0_MV_per_cm": float(self.E0_MV_per_cm),
             "peak_E_MV_per_cm": 2.0 * float(self.E0_MV_per_cm),
             "omega_L_fs_inv": float(self.omega_L_fs_inv),
+            "laser_energy_eV": metadata.get("laser_energy_eV"),
             "phase_rad": float(self.phase_rad),
             "center_fs": float(self.center_fs),
             "sigma_fs": float(self.sigma_fs),
+            "pulse_center_fs": float(self.center_fs),
+            "pulse_sigma_fs": float(self.sigma_fs),
             "envelope": "gaussian",
             "expression": "E(t_fs) = 2 E0 exp[-(t_fs-center)^2/(2 sigma^2)] cos(omega_L t_fs + phase)",
             "amplitude_convention": "E0_MV_per_cm is E0 in E(t)=2E0 f(t) cos(...).",
@@ -208,6 +223,62 @@ class GaussianCarrierFieldPhysical(FieldPhyRoot):
             name=str(payload.get("name", "gaussian_carrier_field_physical")),
             metadata=dict(payload.get("metadata") or {}),
         )
+
+
+def make_default_carrier_field(
+    *,
+    E0_MV_per_cm: float,
+    laser_energy_eV: float,
+    phase_rad: float = 0.0,
+    name: str = "explicit_carrier_field",
+    metadata: dict[str, Any] | None = None,
+) -> CarrierFieldPhysical:
+    """显式构造 CW carrier field。
+
+    这是调用方 helper，不是 `NLevelPhysicalParams` 的默认行为。field 自身
+    记录 `laser_energy_eV`，metadata 输出也只从 field 对象读取这些光场信息。
+    """
+
+    payload = _metadata_copy(metadata)
+    payload["laser_energy_eV"] = float(laser_energy_eV)
+    payload.setdefault("source", "explicit field helper")
+    return CarrierFieldPhysical(
+        E0_MV_per_cm=float(E0_MV_per_cm),
+        omega_L_fs_inv=_energy_eV_to_fs_inv(laser_energy_eV),
+        phase_rad=float(phase_rad),
+        name=name,
+        metadata=payload,
+    )
+
+
+def make_default_gaussian_carrier_field(
+    *,
+    E0_MV_per_cm: float,
+    laser_energy_eV: float,
+    pulse_center_fs: float,
+    pulse_sigma_fs: float,
+    phase_rad: float = 0.0,
+    name: str = "explicit_gaussian_carrier_field",
+    metadata: dict[str, Any] | None = None,
+) -> GaussianCarrierFieldPhysical:
+    """显式构造 Gaussian carrier field。
+
+    `E0_MV_per_cm` 是表达式 `E(t)=2E0 f(t) cos(...)` 中的 E0；
+    `pulse_sigma_fs` 是 Gaussian envelope 的 sigma，单位 fs。
+    """
+
+    payload = _metadata_copy(metadata)
+    payload["laser_energy_eV"] = float(laser_energy_eV)
+    payload.setdefault("source", "explicit field helper")
+    return GaussianCarrierFieldPhysical(
+        E0_MV_per_cm=float(E0_MV_per_cm),
+        omega_L_fs_inv=_energy_eV_to_fs_inv(laser_energy_eV),
+        center_fs=float(pulse_center_fs),
+        sigma_fs=float(pulse_sigma_fs),
+        phase_rad=float(phase_rad),
+        name=name,
+        metadata=payload,
+    )
 
 
 @dataclass(frozen=True)
@@ -334,45 +405,13 @@ def rebuild_physical_field(payload) -> FieldPhyRoot:
     return registry[class_name].rebuild(payload)
 
 
-def default_field_from_physical_params(physical_params, normalizer=None) -> FieldPhyRoot:
-    """从 `NLevelPhysicalParams` 生成默认物理 lab-frame field。"""
-
-    if normalizer is None:
-        raise ValueError("normalizer is required to convert laser_energy_eV to omega_L_fs_inv.")
-    omega_fs_inv = float(normalizer.energy_eV_to_fs_inv(physical_params.laser_energy_eV))
-    metadata = {
-        "laser_energy_eV": physical_params.laser_energy_eV,
-        "source": "NLevelPhysicalParams default field",
-    }
-    if physical_params.input_description is not None:
-        metadata["description"] = physical_params.input_description
-    if physical_params.input_metadata is not None:
-        metadata["user_metadata"] = dict(physical_params.input_metadata)
-    if physical_params.pulse_sigma_fs is None:
-        return CarrierFieldPhysical(
-            E0_MV_per_cm=physical_params.field_MV_per_cm,
-            omega_L_fs_inv=omega_fs_inv,
-            name="default_physical_carrier_field",
-            metadata=metadata,
-        )
-    if physical_params.pulse_center_fs is None:
-        raise ValueError("pulse_center_fs is required when pulse_sigma_fs is set.")
-    return GaussianCarrierFieldPhysical(
-        E0_MV_per_cm=physical_params.field_MV_per_cm,
-        omega_L_fs_inv=omega_fs_inv,
-        center_fs=physical_params.pulse_center_fs,
-        sigma_fs=physical_params.pulse_sigma_fs,
-        name="default_physical_gaussian_carrier_field",
-        metadata=metadata,
-    )
-
-
 __all__ = [
     "FieldPhyRoot",
     "FieldPhyCustomed",
     "CarrierFieldPhysical",
     "GaussianCarrierFieldPhysical",
     "CompositeLabFieldPhysical",
-    "default_field_from_physical_params",
+    "make_default_carrier_field",
+    "make_default_gaussian_carrier_field",
     "rebuild_physical_field",
 ]

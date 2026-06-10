@@ -66,15 +66,16 @@ rwa.mode      = "rwa"
 
 ```text
 sjh_learn/
-├─ optical_bloch_demo.py
-├─ multilevel_demo.py
-├─ n2_equivalence_check.py
+├─ bin/
+│  ├─ multilevel_demo.py
+│  └─ n2_equivalence_check.py
 ├─ examples/
-│  ├─ rwa_common.py
-│  ├─ rwa_01_field_strength.py
-│  ├─ rwa_02_dephasing.py
-│  ├─ rwa_03_redistribution.py
-│  └─ rwa_04_dephasing_and_redistribution.py
+│  └─ absorption/
+│     ├─ absorption_01_chi_analytic.py
+│     ├─ cw_pulse_absorption_compare.py
+│     └─ three_level_absorption_lab_exact.py
+├─ scratch/
+│  └─ validate_*.py
 └─ utils/
    ├─ fields/
    ├─ model.py
@@ -89,10 +90,10 @@ sjh_learn/
 
 说明：
 
-- `optical_bloch_demo.py`：Lab-frame / rotating view / RWA 三种结果对比；
-- `multilevel_demo.py`：multi-level lab-frame 示例；
-- `n2_equivalence_check.py`：检查 N=2 physical mainline 与显式 normalize+solver 路径一致性；
-- `examples/rwa_*.py`：RWA-only 参数扫描和物理现象验证；
+- `bin/multilevel_demo.py`：当前 N-level explicit-field API demo；
+- `bin/n2_equivalence_check.py`：检查 N=2 physical mainline 与显式 normalize+solver 路径一致性；
+- `examples/absorption/`：稳定 absorption 示例；
+- `scratch/`：临时验证脚本；
 - `utils/`：核心模块。
 
 ## 3. `fields.py`
@@ -1500,12 +1501,9 @@ P(t) = Tr[mu rho(t)]
 8. 每次重构后至少运行：
 
 ```text
-conda --no-plugins run -n quantum python -m compileall sjh_learn
-conda --no-plugins run -n quantum python sjh_learn\multilevel_demo.py
-conda --no-plugins run -n quantum python sjh_learn\n2_equivalence_check.py
-conda --no-plugins run -n quantum python sjh_learn\optical_bloch_demo.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strength.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_02_dephasing.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_03_redistribution.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_04_dephasing_and_redistribution.py
+conda --no-plugins run -n quantum python -m compileall sjh_learn scratch
+conda --no-plugins run -n quantum python sjh_learn\bin\multilevel_demo.py
+conda --no-plugins run -n quantum python sjh_learn\bin\n2_equivalence_check.py
+conda --no-plugins run -n quantum python sjh_learn\examples\absorption\cw_pulse_absorption_compare.py
+conda --no-plugins run -n quantum python sjh_learn\examples\absorption\three_level_absorption_lab_exact.py
 ```

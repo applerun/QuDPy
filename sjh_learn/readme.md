@@ -123,46 +123,29 @@ outdir/
 
 ## Demo 和 Example
 
-`optical_bloch_demo.py` 显式执行：
+`sjh_learn/bin/multilevel_demo.py` 是当前 N-level explicit-field API demo：脚本显式构造 field 对象，再传入 `NLevelPhysicalParams(..., field=field)`。
 
-```python
-lab = run_lab_case(parameters)
-rotating = make_rotating_view(lab)
-rwa = run_rwa_case(parameters)
-```
+`sjh_learn/bin/n2_equivalence_check.py` 是 N=2 regression check，用来确认 N=2 physical mainline 与显式 normalize+solver 路径保持一致。
 
-然后由顶层脚本创建 3x3 comparison figure：第一行 input drive / field，第二行 population，第三行 coherence。
+稳定示例放在 `sjh_learn/examples/absorption/`：
 
-`examples/rwa_01_field_strength.py` 是第一个 RWA-only example。它只运行 RWA，不计算 lab frame，用不同 `field_MV_per_cm` 验证场强越大、Rabi 振荡越快。每个 case 保存 `density.npz`、`components.csv`、`meta.json` 和低清 `preview.png`，总图保存为 `comparison.png`。
+- `cw_pulse_absorption_compare.py`：保留 lab_exact 主线和 legacy RWA 对比分支；默认不运行 RWA。
+- `three_level_absorption_lab_exact.py`：two-level 与 three-level lab_exact absorption 对比。
+- `absorption_01_chi_analytic.py`：解析 two-level linear susceptibility 参考。
 
-`rwa_02_dephasing.py`、`rwa_03_redistribution.py` 和 `rwa_04_dephasing_and_redistribution.py` 现在都包含三组条件：`resonant_strong`、`resonant_weak`、`detuned_weak`。其中 `field_MV_per_cm = 0.1` 用于观察弱驱动下的动力学，`detuned_weak` 用于观察非共振条件下 population transfer 和 coherence response 的变化。每个 condition group 都会保存自己的 `comparison.png`、`comparison_components.csv` 和 `results.csv`。
-
-RWA comparison 图现在包含四行：`Omega(t)`、`\rho_{11}(t)`、`|\rho_{01}(t)|` 和 `phase(\rho_{01})`。当 `abs(rho_01)` 很小时，相位会通过 NaN mask 和 unwrap 处理来避免无意义的跳变。RWA examples 的 comparison 曲线使用 colormap 渐变色，而不是 matplotlib 默认颜色循环。
+`scratch/` 只保留临时验证脚本，不放稳定 example。
 
 ## 运行检查
 
 ```powershell
-conda --no-plugins run -n quantum python -m compileall sjh_learn
-conda --no-plugins run -n quantum python sjh_learn\n2_equivalence_check.py
-conda --no-plugins run -n quantum python sjh_learn\multilevel_demo.py
-conda --no-plugins run -n quantum python sjh_learn\optical_bloch_demo.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strength.py
+conda --no-plugins run -n quantum python -m compileall sjh_learn scratch
+conda --no-plugins run -n quantum python sjh_learn\bin\multilevel_demo.py
+conda --no-plugins run -n quantum python sjh_learn\bin\n2_equivalence_check.py
+conda --no-plugins run -n quantum python sjh_learn\examples\absorption\cw_pulse_absorption_compare.py
+conda --no-plugins run -n quantum python sjh_learn\examples\absorption\three_level_absorption_lab_exact.py
 ```
 
-当前阶段不引入 UFSS、多能级 RWA、复杂真实脉冲或吸收光谱；重点是 two-level RWA 基础 example、input drive preview 和结果输出整理。
-
-## RWA Examples
-
-- `rwa_01_field_strength.py`: field strength controls Rabi frequency.
-- `rwa_02_dephasing.py`: pure dephasing damps coherence and Rabi oscillations without adding T1 population relaxation.
-- `rwa_03_redistribution.py`: T1 relaxation / redistribution damps excited-state population.
-- `rwa_04_dephasing_and_redistribution.py`: combined dephasing and redistribution.
-
-CW-input examples live under `examples/cw_input/`. Gaussian femtosecond-pulse examples live under `examples/gau_pulse/`:
-
-- `pulse_01_T1_Tphi_dependence.py`: fixed Gaussian pulse, then scan Tphi, T1, and the four dissipation scenarios.
-- `pulse_02_width_dependence.py`: scan Gaussian pulse width under free, dephasing, and redistribution scenarios.
-- `pulse_03_field_strength_dependence.py`: scan field strength under free, dephasing, and redistribution scenarios.
+当前阶段 QuDPy 主线维护 lab-frame / exact solver；RWA 路径默认禁用，只作为 legacy diagnostic 分支保留。
 
 The Gaussian pulse examples remain RWA-only. They use `pulse_center_fs` and `pulse_sigma_fs` in `NLevelPhysicalParams`; the RWA Hamiltonian receives the slow Gaussian coupling `g(t) = mu E0 exp[-(t - t0)^2 / (2 sigma^2)] / hbar`. The solver constrains `mesolve` with `max_step = dt` so narrow time-dependent pulses are not skipped by adaptive stepping.
 

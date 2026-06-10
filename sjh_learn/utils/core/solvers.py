@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +15,7 @@ from sjh_learn.utils.fields.solver_inputs import (
     CodeConstantDrive,
     CodeGaussianDrive,
 )
-from sjh_learn.utils.fields import FieldPhyRoot, default_field_from_physical_params
+from sjh_learn.utils.fields import FieldPhyRoot
 from sjh_learn.utils.core.model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_fields
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.core.parameters import NLevelPhysicalParams, NLevelSolverParams, ParameterSweep, PhysicalParameterSweep, SolverParams
@@ -155,17 +154,9 @@ def _bound_physical_field(
     normalizer: ParaNormalizer,
     solver: SolverParams,
 ):
-    if physical.field is None:
-        field = default_field_from_physical_params(physical, normalizer)
-    elif isinstance(physical.field, FieldPhyRoot):
-        field = physical.field
-    else:
-        raise TypeError("NLevelPhysicalParams.field must be None or a FieldPhyRoot instance.")
-    return normalizer.make_code_field(
-        field,
-        solver,
-        reference_field_MV_per_cm=physical.field_MV_per_cm,
-    )
+    if not isinstance(physical.field, FieldPhyRoot):
+        raise TypeError("NLevelPhysicalParams.field must be a FieldPhyRoot instance.")
+    return normalizer.make_code_field(physical.field, solver)
 
 
 def make_rotating_view(lab_result: DynamicsResult) -> DynamicsResult:
@@ -193,7 +184,7 @@ def make_rotating_view(lab_result: DynamicsResult) -> DynamicsResult:
     return result
 
 
-def _optical_params_from_solver(
+def _optical_codeparams_from_solverparams(
     solver: SolverParams,
     physical: NLevelPhysicalParams | None = None,
     normalizer: ParaNormalizer | None = None,
@@ -250,15 +241,14 @@ def run_case(
     elif load_path is not None:
         print(f"Checkpoint not found, running simulation: {load_path}")
 
-    if physical_params.solver_mode == "rwa" and physical_params.field is not None:
+    if physical_params.solver_mode == "rwa":
         ensure_rwa_enabled()
         raise ValueError(
-            "RWA mode currently derives its internal envelope from NLevelPhysicalParams pulse parameters, "
-            "not from an explicit FieldPhyRoot. Leave field=None or use lab_exact for custom physical fields."
+            "RWA mode is legacy and has not been migrated to field-only NLevelPhysicalParams input."
         )
     local_normalizer = ParaNormalizer() if normalizer is None else normalizer
     solver = local_normalizer.normalize(physical_params)
-    parameters = _optical_params_from_solver(solver=solver, physical=physical_params, normalizer=local_normalizer)
+    parameters = _optical_codeparams_from_solverparams(solver=solver, physical=physical_params, normalizer=local_normalizer)
     if physical_params.solver_mode == "lab_exact":
         result = _run_lab_case(parameters, rho0=rho0, physical_params=physical_params, solver_params=solver)
     if physical_params.solver_mode == "rwa":
@@ -307,18 +297,7 @@ def run_physical_parameter_sweep(
     sweep: PhysicalParameterSweep,
     normalizer: ParaNormalizer | None = None,
 ) -> list[DynamicsResult]:
-    field_values = sweep.field_MV_per_cm_values or (sweep.base_params.field_MV_per_cm,)
-    laser_values = sweep.laser_energy_eV_values or (sweep.base_params.laser_energy_eV,)
-    results: list[DynamicsResult] = []
-    for laser_energy_eV in laser_values:
-        for field_MV_per_cm in field_values:
-            physical_params = replace(
-                sweep.base_params,
-                laser_energy_eV=laser_energy_eV,
-                field_MV_per_cm=field_MV_per_cm,
-            )
-            results.append(run_case(physical_params, normalizer=normalizer))
-    return results
+    return [run_case(physical_params, normalizer=normalizer) for physical_params in sweep.physical_params_list]
 
 
 __all__ = [

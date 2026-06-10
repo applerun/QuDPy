@@ -63,13 +63,59 @@ class ParaNormalizer:
     ) -> np.ndarray:
         return np.asarray(dipole_matrix_D, dtype=np.complex128) * field_MV_per_cm * cls.DIPOLE_FIELD_TO_RABI_FS_INV
 
+    @staticmethod
+    def _field_payload(field: FieldPhyRoot) -> dict[str, Any]:
+        if not isinstance(field, FieldPhyRoot):
+            raise TypeError("field must be a FieldPhyRoot instance.")
+        payload = field.to_dict()
+        if not isinstance(payload, dict):
+            raise TypeError("field.to_dict() must return a dict.")
+        return payload
+
+    @classmethod
+    def field_reference_MV_per_cm(cls, field: FieldPhyRoot) -> float:
+        """读取 solver 归一化所需的 reference E0，单位 MV/cm。
+
+        当前 Hamiltonian 的 coupling matrix 已经吸收 `mu * E0 / hbar`，
+        因此 field callable 必须返回 `E(t) / E0`。没有单一 E0 的场型
+        暂不自动猜测，调用方需要提供可归一化的 field metadata。
+        """
+
+        value = cls._field_payload(field).get("E0_MV_per_cm")
+        if value is None:
+            raise ValueError("field.to_dict() must expose E0_MV_per_cm for solver normalization.")
+        return float(value)
+
+    @classmethod
+    def field_omega_L_fs_inv(cls, field: FieldPhyRoot) -> float:
+        """读取 carrier angular frequency，单位 fs^-1。"""
+
+        value = cls._field_payload(field).get("omega_L_fs_inv")
+        if value is None:
+            raise ValueError("field.to_dict() must expose omega_L_fs_inv for current lab_exact solver metadata.")
+        return float(value)
+
+    @classmethod
+    def field_pulse_center_sigma_fs(cls, field: FieldPhyRoot) -> tuple[float | None, float | None]:
+        """从 field metadata 读取 Gaussian envelope 参数，单位 fs。"""
+
+        payload = cls._field_payload(field)
+        center = payload.get("pulse_center_fs", payload.get("center_fs"))
+        sigma = payload.get("pulse_sigma_fs", payload.get("sigma_fs"))
+        return (
+            None if center is None else float(center),
+            None if sigma is None else float(sigma),
+        )
+
     def normalize(self, p: NLevelPhysicalParams) -> SolverParams:
         self._validate_physical_params(p)
         energies_fs_inv = np.asarray(self.energy_eV_to_fs_inv(np.asarray(p.energies_eV, dtype=float)), dtype=float)
-        omega_L_fs_inv = float(self.energy_eV_to_fs_inv(p.laser_energy_eV))
+        reference_field_MV_per_cm = self.field_reference_MV_per_cm(p.field)
+        omega_L_fs_inv = self.field_omega_L_fs_inv(p.field)
+        pulse_center_fs, pulse_sigma_fs = self.field_pulse_center_sigma_fs(p.field)
         coupling_matrix_fs_inv = self.coupling_matrix_fs_inv_from_mu_and_field(
             np.asarray(p.dipole_matrix_D, dtype=np.complex128),
-            p.field_MV_per_cm,
+            reference_field_MV_per_cm,
         )
         relaxation_fs = tuple(self._relaxation_channel_to_rate_dict(channel) for channel in p.relaxation_channels)
         dephasing_fs = tuple(self._pure_dephasing_channel_to_rate_dict(channel) for channel in p.pure_dephasing_channels)
@@ -79,16 +125,16 @@ class ParaNormalizer:
         rate_candidates.extend(abs(float(ch["rate_fs_inv"])) for ch in dephasing_fs if ch["rate_fs_inv"] > 0)
         if len(energies_fs_inv) >= 2:
             rate_candidates.append(abs(float(energies_fs_inv[1] - energies_fs_inv[0] - omega_L_fs_inv)))
-        if p.pulse_sigma_fs is not None and p.pulse_sigma_fs > 0:
-            rate_candidates.append(1.0 / p.pulse_sigma_fs)
+        if pulse_sigma_fs is not None and pulse_sigma_fs > 0:
+            rate_candidates.append(1.0 / pulse_sigma_fs)
         time_scale_fs = self._choose_time_scale_fs(rate_candidates, energies_fs_inv)
 
         t_start = p.t_start_fs / time_scale_fs
         t_end = p.t_end_fs / time_scale_fs
         dt = p.dt_fs / time_scale_fs
         tlist = self._build_tlist(t_start, t_end, dt)
-        pulse_center = None if p.pulse_center_fs is None else p.pulse_center_fs / time_scale_fs
-        pulse_sigma = None if p.pulse_sigma_fs is None else p.pulse_sigma_fs / time_scale_fs
+        pulse_center = None if pulse_center_fs is None else pulse_center_fs / time_scale_fs
+        pulse_sigma = None if pulse_sigma_fs is None else pulse_sigma_fs / time_scale_fs
 
         solver = SolverParams(
             time_scale_fs=time_scale_fs,
@@ -109,8 +155,8 @@ class ParaNormalizer:
             tlist=tlist,
             pulse_center=pulse_center,
             pulse_sigma=pulse_sigma,
-            pulse_center_fs=p.pulse_center_fs,
-            pulse_sigma_fs=p.pulse_sigma_fs,
+            pulse_center_fs=pulse_center_fs,
+            pulse_sigma_fs=pulse_sigma_fs,
         )
         self.last_physical = p
         self.last_solver = solver
@@ -177,10 +223,11 @@ class ParaNormalizer:
             raise ValueError("t_end_fs 必须大于 t_start_fs。")
         if p.dt_fs <= 0:
             raise ValueError("dt_fs 必须为正。")
-        if p.pulse_sigma_fs is not None and p.pulse_sigma_fs <= 0:
-            raise ValueError("pulse_sigma_fs 必须为正。")
-        if p.field is not None and not isinstance(p.field, FieldPhyRoot):
-            raise TypeError("field must be None or a FieldPhyRoot instance.")
+        if not isinstance(p.field, FieldPhyRoot):
+            raise TypeError("field must be a FieldPhyRoot instance.")
+        _pulse_center_fs, pulse_sigma_fs = self.field_pulse_center_sigma_fs(p.field)
+        if pulse_sigma_fs is not None and pulse_sigma_fs <= 0:
+            raise ValueError("field pulse_sigma_fs 必须为正。")
         if p.input_description is not None and not isinstance(p.input_description, str):
             raise TypeError("input_description must be None or str.")
         if p.input_metadata is not None and not isinstance(p.input_metadata, dict):
@@ -247,10 +294,7 @@ class ParaNormalizer:
         s = self._require_solver(solver)
         reference = reference_field_MV_per_cm
         if reference is None:
-            physical = getattr(self, "last_physical", None)
-            if physical is None:
-                raise RuntimeError("reference_field_MV_per_cm is required without last_physical.")
-            reference = physical.field_MV_per_cm
+            reference = self.field_reference_MV_per_cm(field_phy)
         return make_code_field_adapter(
             field_phy,
             self,

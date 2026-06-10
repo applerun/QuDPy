@@ -16,6 +16,7 @@ from sjh_learn.utils.core import (
     RelaxationChannel,
 )
 from sjh_learn.utils.checks import n2_mainline_equivalence_check
+from sjh_learn.utils.fields import make_default_carrier_field
 
 
 def make_physical_params() -> NLevelPhysicalParams:
@@ -32,11 +33,13 @@ def make_physical_params() -> NLevelPhysicalParams:
         basis=("g", "e"),
         energies_eV=(0.0, float(ParaNormalizer.fs_inv_to_energy_eV(1.25))),
         dipole_matrix_D=((0.0, dipole_01_D), (dipole_01_D, 0.0)),
-        field_MV_per_cm=field_MV_per_cm,
-        laser_energy_eV=float(ParaNormalizer.fs_inv_to_energy_eV(1.0)),
         t_start_fs=0.0,
         t_end_fs=20.0,
         dt_fs=0.01,
+        field=make_default_carrier_field(
+            E0_MV_per_cm=field_MV_per_cm,
+            laser_energy_eV=float(ParaNormalizer.fs_inv_to_energy_eV(1.0)),
+        ),
         relaxation_channels=(
             RelaxationChannel(name="relaxation_1_to_0", from_level=1, to_level=0, rate_fs_inv=0.03),
         ),

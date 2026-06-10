@@ -10,7 +10,8 @@ from .lab_fields import (
     FieldPhyCustomed,
     FieldPhyRoot,
     GaussianCarrierFieldPhysical,
-    default_field_from_physical_params,
+    make_default_carrier_field,
+    make_default_gaussian_carrier_field,
     rebuild_physical_field,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "CarrierFieldPhysical",
     "GaussianCarrierFieldPhysical",
     "CompositeLabFieldPhysical",
-    "default_field_from_physical_params",
+    "make_default_carrier_field",
+    "make_default_gaussian_carrier_field",
     "rebuild_physical_field",
 ]

@@ -6,12 +6,16 @@
 
 ```text
 sjh_learn/
-├─ optical_bloch_demo.py
-├─ multilevel_demo.py
-├─ n2_equivalence_check.py
+├─ bin/
+│  ├─ multilevel_demo.py
+│  └─ n2_equivalence_check.py
 ├─ examples/
-│  ├─ rwa_common.py
-│  └─ rwa_01_field_strength.py
+│  └─ absorption/
+│     ├─ absorption_01_chi_analytic.py
+│     ├─ cw_pulse_absorption_compare.py
+│     └─ three_level_absorption_lab_exact.py
+├─ scratch/
+│  └─ validate_*.py
 └─ utils/
    ├─ fields/
    │  ├─ __init__.py
@@ -182,27 +186,11 @@ simulation 输出的 `components.csv` 只保存 density matrix、population、co
 
 ## 顶层脚本
 
-`optical_bloch_demo.py` 由脚本显式决定要跑哪些 case：
+`bin/multilevel_demo.py` 使用 `NLevelPhysicalParams` 构造普通 N=3 physical system，并显式构造 field 对象后进入统一 N-level mainline。
 
-```python
-lab = run_lab_case(parameters)
-rotating = make_rotating_view(lab)
-rwa = run_rwa_case(parameters)
-```
+`bin/n2_equivalence_check.py` 继续保留验证意义，但不再依赖旧的 solver-ready multilevel route；它检查 N=2 physical mainline 与显式 `ParaNormalizer -> solver` 路径的一致性。
 
-脚本创建 3x3 对比图，列为 Lab frame、Rotating view、RWA，行为 input drive、population、coherence。最终图像由脚本调用 `save_figure()` 保存。
-
-`multilevel_demo.py` 现在使用 `NLevelPhysicalParams` 构造普通 N=3 physical system，再经 `ParaNormalizer` 和 `run_physical_case()` 进入统一 N-level mainline。
-
-`n2_equivalence_check.py` 继续保留验证意义，但不再依赖旧的 solver-ready multilevel route；它检查 N=2 `run_physical_case()` 封装层与显式 `ParaNormalizer -> run_lab_case()` 路径的一致性。
-
-## RWA Example
-
-`examples/rwa_01_field_strength.py` 是第一个 RWA-only example：
-
-- detuning = 0
-- no T1
-- no Tphi
+`examples/absorption/` 放稳定 absorption 示例；`scratch/` 只放临时验证脚本。RWA 路径默认禁用，legacy 对比分支只能显式开启后使用。
 - only RWA
 - `field_MV_per_cm = [0.1, 0.2, 0.5, 1.0]`
 

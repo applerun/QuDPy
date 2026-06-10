@@ -255,11 +255,15 @@ class DynamicsResult:
         if np.asarray(sample_times_fs).shape != np.asarray(sample_times_code).shape:
             raise ValueError("times and times_fs shapes do not match.")
         # 输出层必须复用 solver 实际使用的 lab-frame field callable，避免展示/分析
-        # 重新拼写物理场函数后与 Hamiltonian 输入脱节。drive(times_code) 是无量纲
-        # solver 电场形状，乘以 field_MV_per_cm 得到物理单位 MV/cm。
+        # 重新拼写物理场函数后与 Hamiltonian 输入脱节。
         if hasattr(self.drive, "physical"):
             return np.asarray(self.drive.physical(sample_times_fs), dtype=float)
-        return np.asarray(self.drive(sample_times_code), dtype=float) * float(self.physical_params.field_MV_per_cm)
+        reference = None
+        if isinstance(self.drive_dict, dict):
+            reference = self.drive_dict.get("reference_field_MV_per_cm")
+        if reference is None:
+            raise ValueError("lab_exact drive metadata must contain reference_field_MV_per_cm.")
+        return np.asarray(self.drive(sample_times_code), dtype=float) * float(reference)
 
     def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         return self.drive_code_values(times)
