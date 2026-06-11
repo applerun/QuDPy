@@ -168,7 +168,7 @@ class TaExpConfig:
     probe_delays_fs: tuple[float, ...] = (
         -300.0, -220.0, -160.0, -110.0, -80.0, -60.0, -45.0, -30.0,
         -20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 45.0, 60.0, 80.0,
-        110.0, 150.0, 220.0, 320.0, 460.0, 650.0, 900.0, 1200.0,
+        110.0, 150.0, 220.0, 320.0, 460.0, 650.0, 900.0, 1200.0,1500,2000,2500,3000,4000,5000
     )
 
     # Probe-anchored convention.
@@ -187,8 +187,8 @@ class TaExpConfig:
     # Time grid. By default, the actual bounds are computed from the full delay
     # range and pulse widths so the entire pump/probe sequence is covered.
     auto_time_grid: bool = True
-    t_start_fs: float = -1500.0
-    t_end_fs: float = 300.0
+    t_start_fs: float = -6000.0
+    t_end_fs: float = 500
     dt_fs: float = 0.2
     time_padding_sigma_factor: float = 10.0
     post_probe_padding_fs: float = 260.0
@@ -859,23 +859,30 @@ class TaResultIO:
         return paths
 
     def save_selected_cases(self, result: TaResult, output_dir: Path) -> dict[str, str]:
-        cases_dir = output_dir / "cases"
-        cases_dir.mkdir(parents=True, exist_ok=True)
+        cases_root = output_dir
+        cases_root.mkdir(parents = True, exist_ok = True)
 
         paths: dict[str, str] = {}
-        for key, dyn_result in result.selected_case_results.items():
-            case_dir = cases_dir / key
 
+        for key, dyn_result in result.selected_case_results.items():
             if save_result_case is not None:
-                save_result_case(
+                written = save_result_case(
                     dyn_result,
-                    case_dir,
-                    output_data=True,
-                    output_preview=bool(result.config.save_case_previews),
+                    cases_root/"res_per_delay",
+                    output_data = True,
+                    output_preview = bool(result.config.save_case_previews),
+                    case_name = key,
+                    example_name = result.config.example_name,
+                    condition_name = "ta_delay_scan",
+                    append_results_csv = True,
                 )
+
+                case_dir = written.get("case_dir", cases_root / key)
                 paths[key] = str(case_dir)
+
             else:
-                case_dir.mkdir(parents=True, exist_ok=True)
+                case_dir = cases_root / key
+                case_dir.mkdir(parents = True, exist_ok = True)
                 ckp_path = case_dir / "result.ckp"
                 dyn_result.save_ckp(ckp_path)
                 paths[key] = str(ckp_path)

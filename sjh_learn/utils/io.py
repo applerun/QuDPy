@@ -987,7 +987,7 @@ def save_result_case(
 ) -> dict[str, Path]:
     root = Path(output_dir)
     name = _safe_case_name(case_name) if case_name is not None else _case_name(result)
-    case_dir = root / "res_per_case" / name
+    case_dir = root / name
     data_dir = case_dir / "data"
     figs_dir = case_dir / "figs"
     component_dir = figs_dir / "component"

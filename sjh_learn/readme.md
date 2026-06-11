@@ -94,16 +94,15 @@ density matrix、population、coherence 都是无量纲量。CSV 中主时间轴
 ```text
 outdir/
 ├─ results.csv
-└─ res_per_case/
-   └─ <case_name>/
-      ├─ data/
-      │  ├─ density.npz
-      │  ├─ components.csv
-      │  └─ populations.csv
-      ├─ figs/
-      │  ├─ preview.png
-      │  └─ full.png
-      └─ meta.json
+└─ <case_name>/
+  ├─ data/
+  │  ├─ density.npz
+  │  ├─ components.csv
+  │  └─ populations.csv
+  ├─ figs/
+  │  ├─ preview.png
+  │  └─ full.png
+  └─ meta.json
 ```
 
 完整数据和预览图可以分别开关。`output_preview=True` 时，如果没有传入 `preview_fig`，IO 层会调用 `build_preview_figure(result)` 生成低清预览图；result 对象本身不画图。
