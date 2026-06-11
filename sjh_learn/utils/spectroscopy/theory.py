@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from sjh_learn.utils.constants import EPSILON0_F_PER_M, FS_TO_S, HBAR_J_S
 from .observables import DEBYE_TO_C_M
 
 
-FS_INV_TO_S_INV = 1.0e15
-HBAR_J_S = 1.054571817e-34
-EPSILON0_F_PER_M = 8.8541878128e-12
+FS_INV_TO_S_INV = 1.0 / FS_TO_S
 
 
 def gamma2_fs_inv_from_T1_Tphi(T1_fs: float | None, Tphi_fs: float | None) -> float:

@@ -10,13 +10,8 @@ from qutip import Qobj, mesolve
 
 from sjh_learn.utils.checks import evaluate_sanity_checks
 from sjh_learn.utils.core.config import ensure_rwa_enabled
-from sjh_learn.utils.fields.solver_inputs import (
-    CodeCompositeField,
-    CodeConstantDrive,
-    CodeGaussianDrive,
-)
 from sjh_learn.utils.fields import FieldPhyRoot
-from sjh_learn.utils.core.model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_fields
+from sjh_learn.utils.core.model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_field
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.core.parameters import NLevelPhysicalParams, NLevelSolverParams, ParameterSweep, PhysicalParameterSweep, SolverParams
 from sjh_learn.utils.core.results import DynamicsResult
@@ -35,18 +30,6 @@ def _mesolve_options(parameters: NLevelSolverParams) -> dict[str, float]:
 
 def _rho0(parameters: NLevelSolverParams, rho0: Qobj | None) -> Qobj:
     return initial_density_matrix(len(parameters.energies)) if rho0 is None else rho0
-
-
-def _default_rwa_drive(parameters: NLevelSolverParams) -> CodeConstantDrive | CodeGaussianDrive:
-    # RWA Hamiltonian 已经携带 coupling_matrix；drive 只表示慢包络 f(t)。
-    if parameters.pulse_sigma is None:
-        return CodeConstantDrive(name="rwa_cw_envelope", amplitude_code=1.0)
-    return CodeGaussianDrive(
-        name="rwa_gaussian_envelope",
-        amplitude_code=1.0,
-        center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-        sigma_code=parameters.pulse_sigma,
-    )
 
 
 def _basic_sanity_checks(result: DynamicsResult) -> dict[str, object]:
@@ -72,19 +55,18 @@ def _run_lab_case(
     solver_params: SolverParams | None = None,
 ) -> DynamicsResult:
     times = _default_tlist(parameters)
-    fields = parameter_fields(parameters)
+    field = parameter_field(parameters)
     solver_result = mesolve(
         H=build_lab_hamiltonian(parameters),
         rho0=_rho0(parameters, rho0),
         tlist=times,
         c_ops=build_c_ops(parameters),
         e_ops=[],
-        args={"fields": fields},
+        args={"field": field},
         options=_mesolve_options(parameters),
     )
     states = list(solver_result.states)
-    fields = parameter_fields(parameters)
-    drive = fields[0] if len(fields) == 1 else CodeCompositeField(fields=fields)
+    drive = field
     result = DynamicsResult(
         mode="lab_exact",
         times=times,
@@ -106,35 +88,13 @@ def _run_lab_case(
 def _run_rwa_case(
     parameters: NLevelSolverParams,
     rho0: Qobj | None = None,
-    drive: CodeConstantDrive | CodeGaussianDrive | None = None,
+    drive: object | None = None,
 ) -> DynamicsResult:
     ensure_rwa_enabled()
-    times = _default_tlist(parameters)
-    local_drive = _default_rwa_drive(parameters) if drive is None else drive
-    solver_result = mesolve(
-        H=build_rwa_hamiltonian(parameters),
-        rho0=_rho0(parameters, rho0),
-        tlist=times,
-        c_ops=build_c_ops(parameters),
-        e_ops=[],
-        args={"drive": local_drive},
-        options=_mesolve_options(parameters),
+    raise RuntimeError(
+        "Legacy RWA solver-unit drive classes have been removed. "
+        "RWA is disabled by default; use lab_exact with physical FieldPhyRoot input."
     )
-    states = list(solver_result.states)
-    result = DynamicsResult(
-        mode="rwa",
-        times=times,
-        times_fs=parameters.times_fs,
-        states=states,
-        parameters=parameters,
-        metadata={"energies_code": parameters.energies},
-        drive=local_drive,
-        drive_dict=local_drive.to_dict(),
-        drive_expr=local_drive.to_expr(),
-        drive_name=local_drive.name,
-    )
-    result.sanity_checks = _basic_sanity_checks(result)
-    return result
 
 
 def _rotating_frame_unitary(time: float, omega_drive: float) -> Qobj:
@@ -196,9 +156,9 @@ def _optical_codeparams_from_solverparams(
     else:
         times_fs = None
 
-    fields = None
+    field = None
     if physical is not None and normalizer is not None:
-        fields = (_bound_physical_field(physical, normalizer, solver),)
+        field = _bound_physical_field(physical, normalizer, solver)
 
     return NLevelSolverParams(
         t_start=solver.t_start,
@@ -209,13 +169,13 @@ def _optical_codeparams_from_solverparams(
         energies=tuple(float(value) for value in solver.energies_code),
         dipole_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
         coupling_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
-        omega_drive=solver.omega_L,
+        omega_drive=0.0 if solver.omega_L is None else solver.omega_L,
         relaxation_channels=solver.relaxation_channels_code,
         pure_dephasing_channels=solver.pure_dephasing_channels_code,
-        detuning=solver.detuning,
+        detuning=0.0 if solver.detuning is None else solver.detuning,
         pulse_center=solver.pulse_center,
         pulse_sigma=solver.pulse_sigma,
-        fields=fields,
+        field=field,
         tlist=solver.tlist,
         times_fs=times_fs,
         basis=None if physical is None else physical.basis,

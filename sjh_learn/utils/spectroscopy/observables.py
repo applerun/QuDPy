@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-
-DEBYE_TO_C_M = 3.33564e-30
+from sjh_learn.utils.constants import DEBYE_TO_C_M
 
 
 def _as_density_trajectory(rho_t) -> np.ndarray:

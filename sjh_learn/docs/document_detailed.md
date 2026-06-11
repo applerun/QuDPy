@@ -202,9 +202,10 @@ g(t) = g0 exp[-(t - t0)^2 / (2 sigma^2)]
 - `time_unit`：时间单位；
 - `amplitude_unit`：drive 单位。
 
-物理含义：RWA 中去掉载波，保留脉冲包络对应的有效耦合。
+RWA drive 是历史说明；当前 QuDPy 主线只维护 lab-frame physical field，
+RWA 路径默认禁用。
 
-### 3.4 `CarrierField`
+### 3.4 `CarrierFieldPhysical`
 
 Lab-frame 真实电场。
 
@@ -216,7 +217,7 @@ E(t) = 2 E0 cos(omega_L t + phase)
 
 重要变量：
 
-- `E0` 或 `amplitude`：电场幅度参数；
+- `E0_MV_per_cm`：电场幅度参数，单位 MV/cm；
 - `omega_L`：激光角频率；
 - `phase`：初始相位；
 - `field_unit`：电场单位，例如 `MV/cm`；
@@ -230,7 +231,7 @@ field_MV_per_cm is E0 in E(t) = 2 E0 cos(omega_L t + phase)
 
 因此若 `field_MV_per_cm = 0.1`，峰值电场为 `0.2 MV/cm`。
 
-### 3.5 `GaussianCarrierField`
+### 3.5 `GaussianCarrierFieldPhysical`
 
 带高斯包络的 Lab-frame 真实电场。
 
@@ -248,14 +249,14 @@ E(t) = 2 E0 exp[-(t - t0)^2 / (2 sigma^2)] cos(omega_L t + phase)
 - `omega_L`：载波角频率；
 - `phase`：载波相位。
 
-与 `GaussianDrive` 的区别：
+与旧 RWA drive 的区别：
 
-- `GaussianCarrierField` 是 Lab-frame 真实电场，包含 `cos(omega_L t)`；
-- `GaussianDrive` 是 RWA 慢变量 drive，不包含 optical carrier。
+- `GaussianCarrierFieldPhysical` 是 Lab-frame 真实电场，包含 `cos(omega_L t)`；
+- 旧 RWA 慢变量 drive 不再作为当前 API 暴露。
 
-### 3.6 `CompositeField`
+### 3.6 `FieldPhySeries`
 
-多个 field 的叠加。
+physical-layer 多个 field 的叠加。
 
 表达式：
 
@@ -1453,8 +1454,8 @@ rwa = run_rwa_case(parameters)
 
 重点：
 
-- Lab-frame：`GaussianCarrierField`；
-- RWA：`GaussianDrive`；
+- Lab-frame：`GaussianCarrierFieldPhysical`；
+- 多脉冲：`FieldPhySeries` / `TAField` / `TwoDESField`；
 - 观察 pulse width、pulse area、peak field 对 population 和 coherence 的影响。
 
 ### 17.3 Polarization

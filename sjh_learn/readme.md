@@ -18,39 +18,26 @@
 
 `utils/fields/` 按物理含义和单位边界拆分：
 
-- `utils/fields/lab_fields.py`：用户侧 lab-frame physical field，包括 `CarrierFieldPhysical`、`GaussianCarrierFieldPhysical` 和 `CompositeLabFieldPhysical`。
-- `utils/fields/rwa_drives.py`：用户侧 physical RWA slow drive / coupling，包括 `ConstantRwaDrivePhysical`、`GaussianRwaDrivePhysical` 和 `make_rwa_drive_from_physical_field()`。
-- `utils/fields/solver_inputs.py`：solver 内部 code-unit callable，例如 `CodeCarrierField`、`CodeConstantDrive` 和 `CodeGaussianDrive`。
-- `utils/fields/__init__.py`：公共 re-export。兼容名称 `CarrierField`、`ConstantDrive` 指向用户侧 physical class；solver 内部显式导入 `Code*` class。
+- `utils/fields/lab_fields.py`：用户侧 lab-frame physical field，包括 `CarrierFieldPhysical` 和 `GaussianCarrierFieldPhysical`。
+- `utils/fields/field_series.py`：physical-layer 多场组合，包括 `FieldPhySeries`、`TAField` 和 `TwoDESField`。
+- `utils/fields/__init__.py`：公共 re-export，只导出 physical field API。
 
-用户侧 field/drive class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`，`ConstantRwaDrivePhysical.__call__(t_fs)` 返回单位为 `fs^-1` 的 `g(t)`。普通示例应设置 `NLevelPhysicalParams` 或 physical field/drive object；`amplitude_code`、`time_unit="code"` 和 `domain="solver_code"` 只属于 `ParaNormalizer`、solver/model 内部或 `debug_meta.json`。
-
-The lab-frame field and RWA drive are intentionally different objects:
-
-```text
-E(t) = 2 E0 f(t) cos(omega_L t + phase)
-g(t) = mu E0 f(t) / hbar
-```
-
-RWA 中保留的是 slow drive / coupling `g(t)`，不是 optical carrier。
-
-`utils/fields/` 现在使用 callable class 描述输入场和 RWA 慢变量 drive，不使用 `eval` 作为重建机制。
+用户侧 field class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`。普通示例应显式构造 physical field，再传入 `NLevelPhysicalParams(..., field=field)`；solver 内部 code-unit callable 只能由 `ParaNormalizer.make_code_field()` 生成。
 
 已支持：
 
-- `ConstantDrive`: RWA 中的 CW drive，`Omega(t) = Omega0`。
-- `GaussianDrive`: RWA 中的高斯 envelope。
-- `CarrierField`: lab frame 载波场，`E(t) = 2A cos(omega t + phase)`。
-- `GaussianCarrierField`: lab frame 高斯包络载波场。
-- `CompositeField`: 多个 field 相加。
+- `CarrierFieldPhysical`: lab frame 载波场，`E(t) = 2E0 cos(omega t + phase)`。
+- `GaussianCarrierFieldPhysical`: lab frame 高斯包络载波场。
+- `FieldPhySeries`: physical-layer 多个 field 相加。
+- `TAField` / `TwoDESField`: TA / 2DES 常用多脉冲 field。
 
 每个 field/drive 支持：
 
 - `__call__(t)`: 接受 scalar 或 numpy array。
-- `to_dict()` / `from_dict()`: 用于可靠保存和重建。
-- `to_expr()` / `__repr__()`: 用于人类可读日志。
+- `to_dict()` / `rebuild(...)`: 用于可靠保存和重建。
+- `__repr__()`: 用于人类可读日志。
 
-RWA 中真正进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是快速振荡 optical carrier。CW RWA drive 在 preview 中是一条水平线；pulse RWA drive 在 preview 中显示 envelope。
+RWA 当前默认禁用；旧 solver-unit field / drive 类已经从当前 API 中删除。
 
 ## 结果和单位
 

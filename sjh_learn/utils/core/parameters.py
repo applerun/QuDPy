@@ -154,8 +154,8 @@ class SolverParams:
 	pure_dephasing_channels_fs_inv: tuple[dict[str, Any], ...]
 	relaxation_channels_code: tuple[dict[str, Any], ...]
 	pure_dephasing_channels_code: tuple[dict[str, Any], ...]
-	omega_L_fs_inv: float
-	omega_L: float
+	omega_L_fs_inv: float | None
+	omega_L: float | None
 	t_start: float
 	t_end: float
 	dt: float
@@ -174,12 +174,15 @@ class SolverParams:
 		return self.omega_eg_fs_inv * self.time_scale_fs
 
 	@property
-	def detuning_fs_inv(self) -> float:
+	def detuning_fs_inv(self) -> float | None:
+		if self.omega_L_fs_inv is None:
+			return None
 		return self.omega_eg_fs_inv - self.omega_L_fs_inv
 
 	@property
-	def detuning(self) -> float:
-		return self.detuning_fs_inv * self.time_scale_fs
+	def detuning(self) -> float | None:
+		detuning_fs_inv = self.detuning_fs_inv
+		return None if detuning_fs_inv is None else detuning_fs_inv * self.time_scale_fs
 
 	@property
 	def rabi_fs_inv(self) -> float:
@@ -243,7 +246,7 @@ class NLevelSolverParams:
 	omega_drive: float = 1.0
 	relaxation_channels: tuple[dict[str, Any], ...] = ()
 	pure_dephasing_channels: tuple[dict[str, Any], ...] = ()
-	fields: tuple[Any, ...] | None = None
+	field: Any | None = None
 	tlist: object | None = None
 	times_fs: object | None = None
 	pulse_center: float | None = None

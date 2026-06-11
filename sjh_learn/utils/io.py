@@ -119,7 +119,8 @@ def default_output_path(output_dir: Path, result: ResultLike) -> Path:
         if amplitude is None:
             raise ValueError("field metadata must contain E0_MV_per_cm to build default output path.")
         amplitude_tag = format_value_tag(amplitude)
-        detuning_tag = format_value_tag(solver.detuning_fs_inv)
+        detuning = getattr(solver, "detuning_fs_inv", None)
+        detuning_tag = "na" if detuning is None else format_value_tag(detuning)
     else:
         coupling = getattr(parameters, "coupling_matrix", None) or getattr(parameters, "dipole_matrix", ((0.0,),))
         amplitude_tag = format_value_tag(float(np.max(np.abs(np.asarray(coupling, dtype=np.complex128)))))
@@ -200,7 +201,8 @@ def _summary_row(case_name: str, result: ResultLike) -> dict[str, Any]:
     solver = getattr(result, "solver_params", None)
     row["field_MV_per_cm"] = "" if physical is None else (_field_E0_MV_per_cm(physical) or "")
     row["laser_energy_eV"] = "" if physical is None else (_field_laser_energy_eV(physical, solver) or "")
-    row["detuning_fs_inv"] = "" if solver is None else solver.detuning_fs_inv
+    detuning = None if solver is None else getattr(solver, "detuning_fs_inv", None)
+    row["detuning_fs_inv"] = "" if detuning is None else detuning
     return row
 
 

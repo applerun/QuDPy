@@ -19,8 +19,8 @@ sjh_learn/
 └─ utils/
    ├─ fields/
    │  ├─ __init__.py
+   │  ├─ field_series.py
    │  ├─ lab_fields.py
-   │  └─ rwa_drives.py
    ├─ model.py
    ├─ solvers.py
    ├─ results.py
@@ -46,12 +46,11 @@ sjh_learn/
 
 `utils/fields/` 按物理含义和单位边界拆分：
 
-- `lab_fields.py` 保存用户侧 lab-frame physical field：`CarrierFieldPhysical`、`GaussianCarrierFieldPhysical` 和 `CompositeLabFieldPhysical`。
-- `rwa_drives.py` 保存用户侧 physical RWA effective slow drive / coupling：`ConstantRwaDrivePhysical`、`GaussianRwaDrivePhysical` 和 `make_rwa_drive_from_physical_field()`。
-- `solver_inputs.py` 保存 solver 内部 code-unit callable，例如 `CodeCarrierField`、`CodeConstantDrive` 和 `CodeGaussianDrive`。
-- `__init__.py` re-export 公共 API。兼容名称 `CarrierField`、`ConstantDrive` 指向用户侧 physical class；solver 内部显式导入 `Code*` class。
+- `lab_fields.py` 保存用户侧 lab-frame physical field：`CarrierFieldPhysical` 和 `GaussianCarrierFieldPhysical`。
+- `field_series.py` 保存 physical-layer 多场组合：`FieldPhySeries`、`TAField` 和 `TwoDESField`。
+- `__init__.py` re-export 当前 physical field API。
 
-用户侧 field/drive class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`，`ConstantRwaDrivePhysical.__call__(t_fs)` 返回单位为 `fs^-1` 的 `g(t)`。Code-unit input 位于 `solver_inputs.py`，只应在 `ParaNormalizer` 完成物理参数转换后创建。
+用户侧 field class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`。solver 内部 code-unit callable 只能由 `ParaNormalizer.make_code_field()` 从 physical field 生成；旧 solver-unit field / drive 类已经删除。
 
 The physical lab-frame field and the RWA drive are not the same object:
 
@@ -62,17 +61,16 @@ g(t) = mu E0 f(t) / hbar
 
 RWA 中保留的是 slow drive / coupling `g(t)`，不是 optical carrier。
 
-输入场和 RWA drive 都是 callable class，不使用 `eval`。
+输入场是 physical-layer callable class，不使用 `eval`。
 
 主要类：
 
-- `ConstantDrive`: `Omega(t) = Omega0`
-- `GaussianDrive`: `Omega(t) = Omega0 exp[-(t - t0)^2 / (2 sigma^2)]`
-- `CarrierField`: `E(t) = 2A cos(omega t + phase)`
-- `GaussianCarrierField`: 高斯包络载波场
-- `CompositeField`: 多个 field 相加
+- `CarrierFieldPhysical`: `E(t_fs) = 2 E0 cos(omega_L t_fs + phase)`
+- `GaussianCarrierFieldPhysical`: 高斯包络载波场
+- `FieldPhySeries`: physical-layer 多个 field 相加
+- `TAField` / `TwoDESField`: TA / 2DES 常用多脉冲 field
 
-每个对象支持 `__call__(t)`、`to_dict()`、`from_dict()`、`to_expr()`。`to_dict()` 用于可靠保存和重建，`to_expr()` 只用于人类可读日志。
+每个对象支持 `__call__(t_fs)`、`to_dict()` 和 `rebuild(...)`。solver code-unit callable 只由 `ParaNormalizer.make_code_field()` 从 physical field 生成。
 
 ## solvers.py
 

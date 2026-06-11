@@ -12,7 +12,6 @@ from typing import Any
 import numpy as np
 from qutip import Qobj, mesolve
 
-from .fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
 from sjh_learn.utils.core.model import (
     build_c_ops,
     build_lab_hamiltonian,
@@ -57,31 +56,28 @@ def _two_level_elements_from_result(result: DynamicsResult) -> dict[str, np.ndar
 def _simulate_lab_for_check(
     parameters: NLevelSolverParams,
     rho0: Qobj,
-    amplitude_code_override: float = 0.0,
+    amplitude_code_override: float | None = 0.0,
 ) -> tuple[np.ndarray, list[Qobj]]:
     times = _default_tlist(parameters)
-    fields = (
-        CodeCarrierField(
-            amplitude_code=amplitude_code_override,
-            omega_code=parameters.omega_drive,
-            phase=0.0,
-        )
-        if parameters.pulse_sigma is None
-        else CodeGaussianCarrierField(
-            amplitude_code=amplitude_code_override,
-            omega_code=parameters.omega_drive,
-            phase=0.0,
-            center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-            sigma_code=parameters.pulse_sigma,
-        ),
-    )
+    if amplitude_code_override is None:
+        if parameters.field is None:
+            raise ValueError("parameters.field is required when amplitude_code_override is None.")
+        field = parameters.field
+    else:
+        if amplitude_code_override != 0.0:
+            raise ValueError("_simulate_lab_for_check only supports zero-field auxiliary checks.")
+
+        def zero_field(_time):
+            return 0.0
+
+        field = zero_field
     result = mesolve(
         H=build_lab_hamiltonian(parameters),
         rho0=rho0,
         tlist=times,
         c_ops=build_c_ops(parameters),
         e_ops=[],
-        args={"fields": fields},
+        args={"field": field},
     )
     return times, list(result.states)
 
@@ -247,13 +243,13 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
         energies=tuple(float(value) for value in solver.energies_code),
         dipole_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
         coupling_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
-        omega_drive=solver.omega_L,
+        omega_drive=0.0 if solver.omega_L is None else solver.omega_L,
         relaxation_channels=solver.relaxation_channels_code,
         pure_dephasing_channels=solver.pure_dephasing_channels_code,
-        detuning=solver.detuning,
+        detuning=0.0 if solver.detuning is None else solver.detuning,
         pulse_center=solver.pulse_center,
         pulse_sigma=solver.pulse_sigma,
-        fields=None,
+        field=local_normalizer.make_code_field(physical_params.field, solver),
         tlist=solver.tlist,
         times_fs=local_normalizer.denormalize_time_array(solver.tlist, solver),
         basis=physical_params.basis,
@@ -261,7 +257,7 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
     explicit_times, explicit_states = _simulate_lab_for_check(
         explicit_params,
         initial_density_matrix(len(explicit_params.energies)),
-        1.0,
+        None,
     )
     explicit = DynamicsResult(
         mode="lab_exact",
