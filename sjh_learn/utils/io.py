@@ -372,7 +372,7 @@ def _field_metadata(result: ResultLike, physical: Any, solver: Any) -> dict[str,
         "expression": "E(t) = 2 E0 f(t) cos(omega_L t + phase)",
         "parameters": parameters,
         "units": {"field": "MV/cm", "time": "fs"},
-        "amplitude_convention": "field_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
+        "amplitude_convention": "E0_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
         "rebuildable": bool(field_payload is not None and field_payload.get("rebuildable", True)),
         "debug_details": "debug_meta.json",
     }
@@ -605,7 +605,7 @@ def _input_field_metadata(physical: Any, solver: Any) -> dict[str, Any] | None:
         "envelope": envelope,
         "field_unit": "MV/cm",
         "time_unit": "fs",
-        "amplitude_convention": "field_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
+        "amplitude_convention": "E0_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
     }
     if getattr(physical, "input_description", None) is not None:
         data["user_description"] = physical.input_description
@@ -728,7 +728,7 @@ def _input_drive_metadata(result: ResultLike, physical: Any, solver: Any, parame
         "drive_symbol": "g(t)",
         "expression": "g(t) = mu E0 f(t) / hbar",
         "amplitude_fs_inv": None if solver is None else solver.rabi_fs_inv,
-        "source": "derived from dipole_matrix_D and field_MV_per_cm",
+        "source": "derived from dipole_matrix_D and field reference_MV_per_cm",
         "domain": "RWA",
         "drive_unit_physical": "fs^-1",
         "envelope": envelope,

@@ -1,5 +1,13 @@
 # sjh_learn 架构记录（详细版）
 
+> 注意：本文档保留早期设计讨论和历史上下文，其中包含 RWA drive、
+> solver-unit field、旧 two-level helper 和旧 metadata 表述。当前
+> field / normalizer / solver API 请以
+> [current_architecture_zh.md](current_architecture_zh.md)、
+> [field_zh.md](field_zh.md) 和 [normalizer_zh.md](normalizer_zh.md)
+> 为准。不要从本文档恢复旧路径，例如 solver-unit Code* field、
+> `args["fields"]`、RWA drive 或 core `ParameterSweep`。
+
 本文档在当前 `document.md` 的基础上扩展，重点记录各模块职责、主要函数用途、变量含义、`DynamicsResult` 字段解释，以及数据保存逻辑。当前目标是让代码既能服务 two-level optical Bloch 学习，又尽量保持对 multi-level 扩展友好。
 
 ## 1. 总体设计原则

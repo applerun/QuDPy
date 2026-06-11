@@ -280,9 +280,10 @@ class ParaNormalizer:
     ) -> float | np.ndarray:
         """把真实电场 MV/cm 归一化为 solver field callable 使用的无量纲 code signal。
 
-        N-level coupling matrix 已经包含 `mu * E0 / hbar`，因此进入 Hamiltonian
-        的 field callable 应表示 `E(t) / E0`。`reference_field_MV_per_cm`
-        就是这个 E0；为 0 时直接报错，避免静默产生无物理意义的归一化。
+        N-level coupling matrix 已经包含 `mu * reference / hbar`，因此进入
+        Hamiltonian 的 field callable 应表示 `E(t) / reference`。
+        `reference_field_MV_per_cm` 为 0 时直接报错，避免静默产生无物理意义
+        的归一化。
         """
 
         if reference_field_MV_per_cm == 0:

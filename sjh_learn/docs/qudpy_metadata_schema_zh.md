@@ -126,7 +126,10 @@ transition_energy_eV(i, j) = energies_eV[j] - energies_eV[i], for i < j
 
 ### 4.3 Transition table
 
-`transition_table` 应从 `energies_eV`、`dipole_matrix_D`、`laser_energy_eV` 和 solver 推导出的 coupling 自动生成。
+`transition_table` 应从 `energies_eV`、`dipole_matrix_D`、field metadata 中可用的
+`laser_energy_eV` / `omega_L_fs_inv`，以及 solver 推导出的 coupling 自动生成。
+如果 field 不是单频 carrier 或没有对应 metadata，`laser_energy_eV` /
+`detuning_fs_inv` 可以为 `null`。
 
 每一行建议包含：
 
@@ -192,7 +195,7 @@ detuning_eV
     "field": "MV/cm",
     "time": "fs"
   },
-  "amplitude_convention": "field_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
+  "amplitude_convention": "E0_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
   "rebuildable": true,
   "debug_details": "debug_meta.json"
 }

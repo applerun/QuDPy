@@ -35,7 +35,7 @@ sjh_learn/
 
 1. 标准结果对象是 `DynamicsResult`。
 2. 一个 `DynamicsResult` 只表示一条 density-matrix trajectory。
-3. `lab_exact` 和 `rwa` 是独立 simulation case。
+3. 当前主线是 `lab_exact`；`rwa` 是默认禁用的 legacy mode。
 4. `rotating_view` 是 `lab_exact` 的派生视图，不调用 `mesolve`。
 5. solver 一次只返回一个 result。
 6. plotting 只返回 matplotlib `fig/axes`，不默认保存。
@@ -52,14 +52,15 @@ sjh_learn/
 
 用户侧 field class 只使用物理单位。`CarrierFieldPhysical.__call__(t_fs)` 返回单位为 `MV/cm` 的 `E(t)`。solver 内部 code-unit callable 只能由 `ParaNormalizer.make_code_field()` 从 physical field 生成；旧 solver-unit field / drive 类已经删除。
 
-The physical lab-frame field and the RWA drive are not the same object:
+physical lab-frame field 和 legacy RWA drive 不是同一个对象：
 
 ```text
 E(t) = 2 E0 f(t) cos(omega_L t + phase)
 g(t) = mu E0 f(t) / hbar
 ```
 
-RWA 中保留的是 slow drive / coupling `g(t)`，不是 optical carrier。
+RWA 中保留的是 slow drive / coupling `g(t)`，不是 optical carrier。当前 RWA
+solver-unit drive path 已删除或禁用；这段只作为历史语义说明。
 
 输入场是 physical-layer callable class，不使用 `eval`。
 
@@ -74,15 +75,19 @@ RWA 中保留的是 slow drive / coupling `g(t)`，不是 optical carrier。
 
 ## solvers.py
 
-two-level 求解入口：
+当前求解入口：
 
-- `run_lab_case(parameters, rho0=None) -> DynamicsResult`
-- `run_rwa_case(parameters, rho0=None, drive=None) -> DynamicsResult`
+- `run_case(physical_params, normalizer=None, rho0=None) -> DynamicsResult`
+- `run_cases(physical_params_list, normalizer=None) -> list[DynamicsResult]`
 - `make_rotating_view(lab_result) -> DynamicsResult`
 
-`run_lab_case` 使用 `build_lab_hamiltonian + build_c_ops + mesolve`。`run_rwa_case` 使用 callable `drive` 构造 time-dependent RWA Hamiltonian；CW 情况默认构造 `ConstantDrive`，pulse 预留 `GaussianDrive`。`make_rotating_view` 只对 `lab_result.states` 做幺正变换。
+`run_case` 对 `lab_exact` 使用 `build_lab_hamiltonian + build_c_ops + mesolve`。
+`model.py` / `solvers.py` 只接收单个 code-unit callable：`args["field"]`。
+多脉冲求和必须由 `FieldPhySeries` / `TAField` / `TwoDESField` 在 physical 层完成。
 
-RWA 中实际进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是 lab frame 的快速 optical carrier。若从真实物理参数出发，`dipole_matrix_D` 与 `field_MV_per_cm` 会通过 `ParaNormalizer` 转换为物理耦合矩阵和内部 solver code-unit 耦合矩阵。
+`dipole_matrix_D` 与 `field.reference_MV_per_cm` 会通过 `ParaNormalizer` 转换为
+物理耦合矩阵和内部 solver code-unit 耦合矩阵。`field.to_dict()` 只用于
+metadata，不是 core 数值接口。
 
 ## results.py
 
@@ -141,7 +146,8 @@ RWA 中实际进入 Hamiltonian 的是慢变量耦合 `Omega(t)`，不是 lab fr
 2. population
 3. coherence
 
-RWA result 第一行画 `Omega(t)`；lab result 第一行画 `E(t)`，会按需要稀疏采样，避免载波振荡过密。
+lab result 第一行画 `E(t)`，会按需要稀疏采样，避免载波振荡过密。RWA result
+只作为 legacy result 类型保留显示逻辑。
 
 ## io.py
 
@@ -188,9 +194,8 @@ simulation 输出的 `components.csv` 只保存 density matrix、population、co
 
 `bin/n2_equivalence_check.py` 继续保留验证意义，但不再依赖旧的 solver-ready multilevel route；它检查 N=2 physical mainline 与显式 `ParaNormalizer -> solver` 路径的一致性。
 
-`examples/absorption/` 放稳定 absorption 示例；`scratch/` 只放临时验证脚本。RWA 路径默认禁用，legacy 对比分支只能显式开启后使用。
-- only RWA
-- `field_MV_per_cm = [0.1, 0.2, 0.5, 1.0]`
+`examples/absorption/` 放稳定 absorption 示例；`scratch/` 只放临时验证脚本。
+RWA 路径默认禁用，legacy 对比分支只能显式开启后使用。
 
 每个 case 保存：
 
@@ -199,34 +204,19 @@ simulation 输出的 `components.csv` 只保存 density matrix、population、co
 - `meta.json`
 - `figs/preview.png`
 
-总图 `comparison.png` 至少包含 `Omega(t)`、`rho_11(t)`、`abs_rho_01(t)`。`results.csv` 记录 `field_MV_per_cm`、`rabi_fs_inv`、`rabi_code`、`max_rho_11`、`final_rho_11`、`max_abs_rho_01`、`final_abs_rho_01`。
+示例脚本负责决定总图和 `results.csv` 的具体列；这些属于 workflow 层，不属于
+core solver API。
 
 预期物理结果：场强越大，Rabi frequency 越大，excited-state population `rho_11` 振荡周期越短；无 relaxation / dephasing 时振荡不应衰减；共振且强度足够时 `rho_11` 可接近 1。
 
-## RWA Examples
+## RWA Legacy Status
 
-- `rwa_01_field_strength.py`: field strength controls Rabi frequency.
-- `rwa_02_dephasing.py`: pure dephasing damps coherence and Rabi oscillations without adding T1 population relaxation.
-- `rwa_03_redistribution.py`: T1 relaxation / redistribution damps excited-state population.
-- `rwa_04_dephasing_and_redistribution.py`: combined dephasing and redistribution.
+RWA solver-unit drive path 已删除或禁用。当前主线只维护 lab-frame / exact solver。
+`cw_pulse_absorption_compare.py` 保留了 legacy 对比分支，但默认 `compute_rwa=False`。
+如果显式请求 `solver_mode="rwa"` 且 `FORCE_RWA=False`，应在求解前直接报错。
 
-CW-input examples are grouped under `examples/cw_input/`. Gaussian femtosecond-pulse examples are grouped under `examples/gau_pulse/`:
-
-- `pulse_01_T1_Tphi_dependence.py`: fixed Gaussian pulse, then scan Tphi, T1, and the four dissipation scenarios.
-- `pulse_02_width_dependence.py`: scan Gaussian pulse width under free, dephasing, and redistribution scenarios.
-- `pulse_03_field_strength_dependence.py`: scan field strength under free, dephasing, and redistribution scenarios.
-
-The Gaussian pulse examples are still RWA-only. They use physical `pulse_center_fs` and `pulse_sigma_fs`, and the RWA Hamiltonian receives the slow Gaussian coupling `g(t) = mu E0 exp[-(t - t0)^2 / (2 sigma^2)] / hbar`. The solver sets `mesolve` `max_step = dt` so narrow time-dependent pulses are resolved by the integrator.
-
-Current `redistribution` is intentionally simplified to excited-to-ground T1 relaxation in the RWA examples. Bidirectional redistribution and thermal redistribution are future extensions, and upward transitions are not implemented in this round. All RWA examples run only `run_rwa_case`, each simulation case is one `DynamicsResult`, and the input drive is saved in metadata, preview figures, and `comparison_components.csv`.
-
-`field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
-
-Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical N-level inputs, physical field/drive information, derived physical rates, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, code-unit drive metadata, solver internals, and sanity checks.
-
-`rwa_02_dephasing.py`, `rwa_03_redistribution.py`, and `rwa_04_dephasing_and_redistribution.py` now each generate three condition groups: `resonant_strong`, `resonant_weak`, and `detuned_weak`. The `field_MV_per_cm = 0.1` cases are meant to show weak-drive dynamics, while `detuned_weak` shows how off-resonant driving changes population transfer and coherence response.
-
-RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01(t)`, and `phase(rho_01)`. The phase trace is unwrapped, and low-amplitude regions with very small `abs(rho_01)` are masked with `NaN` because the phase there is not numerically meaningful. RWA example comparisons also use colormap gradients rather than matplotlib's default color cycle.
+`utils/spectroscopy/rwa.py` 只保留已有 RWA-like trajectory 的诊断性后处理，不是
+core 主线依赖。
 
 ## Unit Conventions
 
@@ -236,9 +226,9 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 - `relaxation_channels` 定义 population relaxation：`C_{to <- from} = sqrt(rate) |to><from|`，每个 channel 可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
 - `pure_dephasing_channels` 定义 level projector pure dephasing：`C_level^phi = sqrt(rate) |level><level|`，每个 channel 可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。
 - 普通 N=2 示例如果需要“`dipole_D` / `T1_fs` / `Tphi_fs`”这样的教学参数，会在 example-local helper 中翻译成 `dipole_matrix_D` 和 channel list；这些不再是 core model API。
-- `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, drive, and decay rates.
+- `ParaNormalizer` converts those physical units into solver code units for internal time, frequency, field adapter, and decay rates.
 - Solver and model code are allowed to use code units internally.
-- User-facing field/drive classes use physical units only: `E0_MV_per_cm`, `laser_energy_eV` or `omega_L_fs_inv`, `phase_rad`, `pulse_center_fs`, `pulse_sigma_fs`, and RWA `amplitude_fs_inv`.
+- User-facing field classes use physical units only: `E0_MV_per_cm`, `laser_energy_eV` or optional `omega_L_fs_inv`, `phase_rad`, `pulse_center_fs`, and `pulse_sigma_fs`.
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
@@ -261,5 +251,5 @@ RWA comparison plots now contain four rows: `Omega(t)`, `rho_11(t)`, `abs_rho_01
 - Each coherence exports real, imaginary, absolute value, masked phase, and unwrapped masked phase columns.
 - `populations.csv` contains all diagonal elements; `density.npz` contains the complete density-matrix trajectory.
 - `DynamicsResult` no longer exposes a two-level-only `components()` helper; result access should use `populations()`, `matrix_element()`, `matrix_elements()`, or dataframe exporters.
-- The two-level RWA examples still use two-level-specific summaries and plots by design; their `rho_11` / `rho_01` extraction is kept in example-level helpers, not in the generic result export.
+- Two-level demos or legacy comparison scripts may still use two-level-specific summaries and plots by design; their `rho_11` / `rho_01` extraction is kept in example-level helpers, not in the generic result export.
 - 官方 multilevel route 是 `NLevelPhysicalParams -> ParaNormalizer -> NLevelSolverParams -> model.py -> solvers.py -> DynamicsResult`。two-level system 是普通 `N=2`，multilevel system 是普通 `N>2`；旧 solver-ready multilevel 路径已移除，普通示例不再直接构造 code-unit multilevel 输入。

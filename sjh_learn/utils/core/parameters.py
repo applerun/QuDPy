@@ -104,7 +104,7 @@ class NLevelPhysicalParams:
 	pure_dephasing_channels: tuple[PureDephasingChannel, ...] = ()
 
 	# solver 表示模式。
-	# 常用值包括 "lab_exact"、"rwa" 或其它后续支持的模式。
+	# 当前主线是 "lab_exact"；"rwa" 是默认禁用的 legacy mode。
 	solver_mode: str = "lab_exact"
 
 	# 用户自定义输入说明。
@@ -255,31 +255,6 @@ class NLevelSolverParams:
 	detuning: float = 0.0
 
 
-@dataclass(frozen = True)
-class PhysicalParameterSweep:
-	"""显式物理参数列表扫描。
-
-	光场差异应体现在每个 `NLevelPhysicalParams.field` 对象里，而不是
-	通过顶层 field / laser 标量隐式替换。
-	"""
-
-	physical_params_list: tuple[NLevelPhysicalParams, ...]
-
-
-@dataclass(frozen = True)
-class ParameterSweep:
-	"""旧 code-unit sweep 兼容结构；普通用户示例不再使用。"""
-
-	t_final: float = 120.0
-	dt: float = 0.01
-	hbar: float = 1.0
-	energies: tuple[float, ...] = (0.0, 1.0)
-	dipole_matrix: tuple[tuple[complex, ...], ...] = ((0.0, 1.0), (1.0, 0.0))
-	omega_drive: float = 1.0
-	field_amplitudes: tuple[float, ...] = (0.5, 1.0, 2.0)
-	detunings: tuple[float, ...] = (0.0,)
-
-
 def as_complex_matrix(value) -> np.ndarray:
 	return np.asarray(value, dtype = np.complex128)
 
@@ -290,7 +265,5 @@ __all__ = [
 	"PureDephasingChannel",
 	"SolverParams",
 	"NLevelSolverParams",
-	"PhysicalParameterSweep",
-	"ParameterSweep",
 	"as_complex_matrix",
 ]

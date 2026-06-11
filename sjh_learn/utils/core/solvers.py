@@ -13,7 +13,7 @@ from sjh_learn.utils.core.config import ensure_rwa_enabled
 from sjh_learn.utils.fields import FieldPhyRoot
 from sjh_learn.utils.core.model import build_c_ops, build_lab_hamiltonian, build_rwa_hamiltonian, initial_density_matrix, parameter_field
 from sjh_learn.utils.core.normalization import ParaNormalizer
-from sjh_learn.utils.core.parameters import NLevelPhysicalParams, NLevelSolverParams, ParameterSweep, PhysicalParameterSweep, SolverParams
+from sjh_learn.utils.core.parameters import NLevelPhysicalParams, NLevelSolverParams, SolverParams
 from sjh_learn.utils.core.results import DynamicsResult
 
 
@@ -233,31 +233,6 @@ def run_cases(
     normalizer: ParaNormalizer | None = None,
 ) -> list[DynamicsResult]:
     return [run_case(physical_params, normalizer=normalizer) for physical_params in physical_params_list]
-
-
-def run_parameter_sweep(sweep: ParameterSweep) -> list[DynamicsResult]:
-    results: list[DynamicsResult] = []
-    for detuning in sweep.detunings:
-        for amplitude_scale in sweep.field_amplitudes:
-            energies = (sweep.energies[0], sweep.omega_drive + detuning)
-            parameters = NLevelSolverParams(
-                t_final=sweep.t_final,
-                dt=sweep.dt,
-                hbar=sweep.hbar,
-                energies=energies,
-                dipole_matrix=sweep.dipole_matrix,
-                coupling_matrix=tuple(tuple(amplitude_scale * complex(item) for item in row) for row in sweep.dipole_matrix),
-                omega_drive=sweep.omega_drive,
-            )
-            results.append(_run_lab_case(parameters))
-    return results
-
-
-def run_physical_parameter_sweep(
-    sweep: PhysicalParameterSweep,
-    normalizer: ParaNormalizer | None = None,
-) -> list[DynamicsResult]:
-    return [run_case(physical_params, normalizer=normalizer) for physical_params in sweep.physical_params_list]
 
 
 __all__ = [

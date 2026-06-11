@@ -6,9 +6,9 @@
 
 - 标准结果对象是 `DynamicsResult`。
 - 一个 `DynamicsResult` 只表示一条 density-matrix trajectory。
-- `lab_exact` 和 `rwa` 是两个独立 simulation case。
+- 当前主线是 `lab_exact`。`rwa` 是 legacy mode，默认禁用。
 - `rotating_view` 不是独立求解，而是由 `lab_exact` 结果通过幺正变换派生。
-- solver 层一次只返回一个 result，不同时运行 lab / rotating / RWA。
+- solver 层一次只返回一个 result，不同时运行多个 mode。
 - result 层只保存数值轨迹和 metadata，不依赖 matplotlib。
 - plotting 层只画到 matplotlib `fig/axes` 上并返回句柄，不默认保存文件。
 - 顶层脚本负责组合多个 result、排版、加总标题、保存最终图。
@@ -132,31 +132,67 @@ conda --no-plugins run -n quantum python sjh_learn\examples\absorption\cw_pulse_
 conda --no-plugins run -n quantum python sjh_learn\examples\absorption\three_level_absorption_lab_exact.py
 ```
 
-当前阶段 QuDPy 主线维护 lab-frame / exact solver；RWA 路径默认禁用，只作为 legacy diagnostic 分支保留。
+当前阶段 QuDPy 主线维护 lab-frame / exact solver；RWA solver-unit drive 路径默认禁用，
+只保留 legacy diagnostic 后处理说明。不要把 RWA 作为默认 fallback。
 
-The Gaussian pulse examples remain RWA-only. They use `pulse_center_fs` and `pulse_sigma_fs` in `NLevelPhysicalParams`; the RWA Hamiltonian receives the slow Gaussian coupling `g(t) = mu E0 exp[-(t - t0)^2 / (2 sigma^2)] / hbar`. The solver constrains `mesolve` with `max_step = dt` so narrow time-dependent pulses are not skipped by adaptive stepping.
+推荐的 field 输入方式是显式构造 physical field：
 
-Current `redistribution` is intentionally simplified to excited-to-ground T1 relaxation in the RWA examples. Bidirectional redistribution and thermal redistribution are future extensions, and upward transitions are not implemented in this round. All RWA examples run only `run_rwa_case`, each simulation case is one `DynamicsResult`, and the input drive is saved in metadata, preview figures, and `comparison_components.csv`.
+```python
+field = make_default_gaussian_carrier_field(
+    E0_MV_per_cm=0.05,
+    laser_energy_eV=1.625,
+    pulse_center_fs=0.0,
+    pulse_sigma_fs=8.0,
+)
 
-`field_MV_per_cm` is the physical input field amplitude. The Rabi frequency is obtained from `mu E / hbar`. In RWA plots, the first row defaults to `Omega(t)` in `fs^-1`. In lab-frame plots, the first row defaults to the physical electric field `E(t)` in `MV/cm`; if code-unit diagnostics are shown instead, they are labeled explicitly as code units.
+params = NLevelPhysicalParams(
+    energies_eV=...,
+    dipole_matrix_D=...,
+    t_start_fs=...,
+    t_end_fs=...,
+    dt_fs=...,
+    field=field,
+)
+
+result = run_case(params)
+```
 
 Each case writes two metadata files. `meta.json` is a short human-readable summary with `example_name`, `condition_name`, `case_name`, physical N-level inputs, physical field/drive information, derived physical rates, trajectory summary, and output-file paths. `debug_meta.json` keeps the full raw `DynamicsResult.metadata_dict()` payload, including full code parameters, `tlist`, `times_fs`, code-unit drive metadata, solver internals, and sanity checks.
 
 ## Unit Conventions
 
 - 现在用户侧标准物理系统对象是 `NLevelPhysicalParams`。two-level system 不再是核心层的特殊标量模型，而是 `N=2` 的普通 N-level system；multilevel system 也是普通 `N>2` system。
-- `dipole_matrix_D` 是沿选定 optical polarization 投影后的偶极矩矩阵，单位是 Debye。光场幅度仍用 `field_MV_per_cm`，归一化时会由 `ParaNormalizer` 转换为 coupling matrix。
+- `dipole_matrix_D` 是沿选定 optical polarization 投影后的偶极矩矩阵，单位是 Debye。光场由 `field` 对象唯一描述，归一化时 `ParaNormalizer` 读取 `field.reference_MV_per_cm` 生成 coupling matrix。
 - population relaxation 由 `relaxation_channels` 定义，每个通道表示 `C_{to <- from} = sqrt(rate) |to><from|`。通道可用 `T1_fs` 或 `rate_fs_inv` 指定速率。
 - pure dephasing 由 `pure_dephasing_channels` 定义，每个通道表示 `C_level^phi = sqrt(rate) |level><level|`。通道可用 `Tphi_fs` 或 `rate_fs_inv` 指定速率。
 - 标量 `dipole_D`、`T1_fs`、`Tphi_fs`、`T2_fs` 不再是核心物理模型输入；如果某个 N=2 example 需要这些概念，会在 example-local helper 中把它们翻译成 `dipole_matrix_D` 和 channel list。
-- `NLevelPhysicalParams` 使用真实物理单位，例如 `energies_eV`、`dipole_matrix_D`、`field_MV_per_cm`、`time_fs` 和 `fs^-1` 速率。
+- `NLevelPhysicalParams` 使用真实物理单位，例如 `energies_eV`、`dipole_matrix_D`、`time_fs` 和 `fs^-1` 速率；光场信息来自 `field` 对象。
 - `NLevelSolverParams` 是内部 solver 参数容器，保存 N-level matrices、channel lists 和 code-unit 时间/频率；普通用户示例不直接构造它。
 - `ParaNormalizer` 把这些物理单位转换为 solver 内部使用的 code unit，包括时间、频率、drive 和 decay rate。
 - `model.py` 构造 N-level 的 `H0`、`H_int(t)` 和 Lindblad `c_ops`；`solvers.py` 每次只返回一条 `DynamicsResult` 轨迹。
-- 用户侧 field/drive 类只使用物理单位：`E0_MV_per_cm`、`laser_energy_eV` 或 `omega_L_fs_inv`、`phase_rad`、`pulse_center_fs`、`pulse_sigma_fs`，以及 RWA `amplitude_fs_inv`。
+- 用户侧 field 类只使用物理单位：`E0_MV_per_cm`、`laser_energy_eV` 或 optional `omega_L_fs_inv`、`phase_rad`、`pulse_center_fs`、`pulse_sigma_fs`。
 - Plotting, CSV export, and example summaries default to physical units when available.
 - Code-unit outputs are kept only as metadata or clearly labeled diagnostic fields such as `drive_code`.
 - Density matrix, populations, and coherences are dimensionless.
+
+## Parameter Scan
+
+参数扫描、delay scan、power scan 和 batch run 属于 examples / workflow 层，不属于
+core solver API。推荐写普通上层循环：
+
+```python
+results = []
+for scan_params, field in iter_ta_gaussian_fields(...):
+    params = NLevelPhysicalParams(
+        energies_eV=...,
+        dipole_matrix_D=...,
+        t_start_fs=...,
+        t_end_fs=...,
+        dt_fs=...,
+        field=field,
+    )
+    results.append((scan_params, run_case(params)))
+```
 
 ## Dynamics Analysis
 
@@ -176,5 +212,5 @@ Each case writes two metadata files. `meta.json` is a short human-readable summa
 - Upper-triangular off-diagonal elements are saved as coherences with `Re_rho_ij`, `Im_rho_ij`, `abs_rho_ij`, `phase_rho_ij`, and `phase_rho_ij_unwrapped` columns, using zero-based indices.
 - `populations.csv` saves every diagonal population, and `density.npz` always contains the full density-matrix trajectory.
 - `DynamicsResult` is a dimension-aware result object and does not provide a two-level-only `components()` helper.
-- Two-level demos and RWA examples remain intentionally two-level specific where they compare `rho_11` and `rho_01`; that extraction now lives in example-level helpers.
+- Two-level demos or legacy comparison scripts may still use two-level-specific `rho_11` / `rho_01` helper extraction; that logic lives in example-level helpers, not in generic result export.
 - 官方 multilevel 路线已经统一为 `NLevelPhysicalParams`：two-level system 是普通 `N=2`，multilevel system 是普通 `N>2`。旧的 solver-ready multilevel 路径已移除，普通示例不再直接构造 code-unit multilevel 输入。

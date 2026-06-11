@@ -10,8 +10,6 @@ from .normalization import ParaNormalizer
 from .parameters import (
     NLevelPhysicalParams,
     NLevelSolverParams,
-    ParameterSweep,
-    PhysicalParameterSweep,
     PureDephasingChannel,
     RelaxationChannel,
     SolverParams,
@@ -34,8 +32,6 @@ __all__ = [
     "PureDephasingChannel",
     "SolverParams",
     "ParaNormalizer",
-    "PhysicalParameterSweep",
-    "ParameterSweep",
     "run_case",
     "run_cases",
     "make_rotating_view",

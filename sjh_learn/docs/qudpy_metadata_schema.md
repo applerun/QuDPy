@@ -125,7 +125,7 @@ Rules:
 
 ### 4.3 Transition table
 
-`transition_table` should be automatically generated from `energies_eV`, `dipole_matrix_D`, `laser_energy_eV`, and solver-derived coupling values.
+`transition_table` should be automatically generated from `energies_eV`, `dipole_matrix_D`, field metadata such as `laser_energy_eV` / `omega_L_fs_inv` when available, and solver-derived coupling values. If the field is not a single-frequency carrier or does not expose those metadata keys, `laser_energy_eV` / `detuning_fs_inv` may be `null`.
 
 Each row should have:
 
@@ -191,7 +191,7 @@ Allowed structure:
     "field": "MV/cm",
     "time": "fs"
   },
-  "amplitude_convention": "field_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
+  "amplitude_convention": "E0_MV_per_cm is E0 in E(t) = 2 E0 f(t) cos(omega_L t + phase).",
   "rebuildable": true,
   "debug_details": "debug_meta.json"
 }
