@@ -12,7 +12,6 @@ from typing import Any
 import numpy as np
 from qutip import Qobj, mesolve
 
-from .fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField
 from sjh_learn.utils.core.model import (
     build_c_ops,
     build_lab_hamiltonian,
@@ -57,31 +56,28 @@ def _two_level_elements_from_result(result: DynamicsResult) -> dict[str, np.ndar
 def _simulate_lab_for_check(
     parameters: NLevelSolverParams,
     rho0: Qobj,
-    amplitude_code_override: float = 0.0,
+    amplitude_code_override: float | None = 0.0,
 ) -> tuple[np.ndarray, list[Qobj]]:
     times = _default_tlist(parameters)
-    fields = (
-        CodeCarrierField(
-            amplitude_code=amplitude_code_override,
-            omega_code=parameters.omega_drive,
-            phase=0.0,
-        )
-        if parameters.pulse_sigma is None
-        else CodeGaussianCarrierField(
-            amplitude_code=amplitude_code_override,
-            omega_code=parameters.omega_drive,
-            phase=0.0,
-            center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-            sigma_code=parameters.pulse_sigma,
-        ),
-    )
+    if amplitude_code_override is None:
+        if parameters.field is None:
+            raise ValueError("parameters.field is required when amplitude_code_override is None.")
+        field = parameters.field
+    else:
+        if amplitude_code_override != 0.0:
+            raise ValueError("_simulate_lab_for_check only supports zero-field auxiliary checks.")
+
+        def zero_field(_time):
+            return 0.0
+
+        field = zero_field
     result = mesolve(
         H=build_lab_hamiltonian(parameters),
         rho0=rho0,
         tlist=times,
         c_ops=build_c_ops(parameters),
         e_ops=[],
-        args={"fields": fields},
+        args={"field": field},
     )
     return times, list(result.states)
 
@@ -97,8 +93,15 @@ def _lab_field_export_matches_solver_input(result: DynamicsResult) -> dict[str, 
         return {"passed": True, "skipped": "missing_physical_params_or_solver_field_callable"}
 
     # 这里检查输出/分析层使用的物理电场是否直接来自 solver 实际 field callable。
-    # solver field 是无量纲 code-unit 时间函数；乘以 field_MV_per_cm 后才是 MV/cm。
-    expected = np.asarray(result.drive(result.times), dtype=float) * float(result.physical_params.field_MV_per_cm)
+    if hasattr(result.drive, "physical"):
+        expected = np.asarray(result.drive.physical(result.times_fs), dtype=float)
+    else:
+        reference = None
+        if isinstance(result.drive_dict, dict):
+            reference = result.drive_dict.get("reference_field_MV_per_cm")
+        if reference is None:
+            return {"passed": False, "reason": "lab_exact drive metadata lacks reference_field_MV_per_cm."}
+        expected = np.asarray(result.drive(result.times), dtype=float) * float(reference)
     exported = result.field_MV_per_cm_values()
     if exported is None:
         return {"passed": False, "reason": "field_MV_per_cm_values returned None for lab_exact result."}
@@ -107,7 +110,7 @@ def _lab_field_export_matches_solver_input(result: DynamicsResult) -> dict[str, 
         "max_difference_MV_per_cm": max_difference,
         "threshold_MV_per_cm": 1e-12,
         "passed": bool(max_difference < 1e-12),
-        "source": "solver_field_callable_times_physical_field_MV_per_cm",
+        "source": "solver_bound_physical_field_callable",
     }
 
 
@@ -240,13 +243,13 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
         energies=tuple(float(value) for value in solver.energies_code),
         dipole_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
         coupling_matrix=tuple(tuple(complex(item) for item in row) for row in solver.coupling_matrix_code),
-        omega_drive=solver.omega_L,
+        omega_drive=0.0 if solver.omega_L is None else solver.omega_L,
         relaxation_channels=solver.relaxation_channels_code,
         pure_dephasing_channels=solver.pure_dephasing_channels_code,
-        detuning=solver.detuning,
+        detuning=0.0 if solver.detuning is None else solver.detuning,
         pulse_center=solver.pulse_center,
         pulse_sigma=solver.pulse_sigma,
-        fields=None,
+        field=local_normalizer.make_code_field(physical_params.field, solver),
         tlist=solver.tlist,
         times_fs=local_normalizer.denormalize_time_array(solver.tlist, solver),
         basis=physical_params.basis,
@@ -254,7 +257,7 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
     explicit_times, explicit_states = _simulate_lab_for_check(
         explicit_params,
         initial_density_matrix(len(explicit_params.energies)),
-        1.0,
+        None,
     )
     explicit = DynamicsResult(
         mode="lab_exact",

@@ -3,14 +3,22 @@
 本模块只负责单位换算和归一化：不定义主参数 dataclass，不构造
 Hamiltonian，也不生成 collapse operator。
 """
-
 from __future__ import annotations
-
+import warnings
 from dataclasses import asdict, fields as dataclass_fields
 from typing import Any, Optional
 
 import numpy as np
 
+from sjh_learn.utils.constants import (
+    DEBYE_TO_C_M as _DEBYE_TO_C_M,
+    DIPOLE_FIELD_TO_RABI_FS_INV as _DIPOLE_FIELD_TO_RABI_FS_INV,
+    E_CHARGE_C as _E_CHARGE_C,
+    EV_TO_FS_INV as _EV_TO_FS_INV,
+    FS_TO_S as _FS_TO_S,
+    HBAR_J_S as _HBAR_J_S,
+    MV_PER_CM_TO_V_PER_M as _MV_PER_CM_TO_V_PER_M,
+)
 from sjh_learn.utils.fields.lab_fields import FieldPhyRoot, make_code_field_adapter
 from sjh_learn.utils.core.parameters import NLevelPhysicalParams, PureDephasingChannel, RelaxationChannel, SolverParams
 
@@ -18,16 +26,14 @@ from sjh_learn.utils.core.parameters import NLevelPhysicalParams, PureDephasingC
 class ParaNormalizer:
     """把 `NLevelPhysicalParams` 转换为 solver 可用的 code-unit 参数。"""
 
-    HBAR_J_S = 1.054571817e-34
-    E_CHARGE_C = 1.602176634e-19
-    FS_TO_S = 1e-15
-    DEBYE_TO_C_M = 3.33564e-30
-    MV_PER_CM_TO_V_PER_M = 1e8
+    HBAR_J_S = _HBAR_J_S
+    E_CHARGE_C = _E_CHARGE_C
+    FS_TO_S = _FS_TO_S
+    DEBYE_TO_C_M = _DEBYE_TO_C_M
+    MV_PER_CM_TO_V_PER_M = _MV_PER_CM_TO_V_PER_M
 
-    EV_TO_FS_INV = (E_CHARGE_C / HBAR_J_S) * FS_TO_S
-    DIPOLE_FIELD_TO_RABI_FS_INV = (
-        DEBYE_TO_C_M * MV_PER_CM_TO_V_PER_M / HBAR_J_S
-    ) * FS_TO_S
+    EV_TO_FS_INV = _EV_TO_FS_INV
+    DIPOLE_FIELD_TO_RABI_FS_INV = _DIPOLE_FIELD_TO_RABI_FS_INV
 
     def __init__(self, time_scale_fs: Optional[float] = None, auto_scale: bool = True):
         self.user_time_scale_fs = time_scale_fs
@@ -52,7 +58,7 @@ class ParaNormalizer:
         return 1.0 / T_fs
 
     @classmethod
-    def rabi_fs_inv_from_mu_and_field(cls, projected_dipole_D: complex, field_MV_per_cm: float) -> complex:
+    def rabi_fs_inv_from_mu_and_field(cls, projected_dipole_D: float, field_MV_per_cm: float) -> float:
         return projected_dipole_D * field_MV_per_cm * cls.DIPOLE_FIELD_TO_RABI_FS_INV
 
     @classmethod
@@ -63,13 +69,41 @@ class ParaNormalizer:
     ) -> np.ndarray:
         return np.asarray(dipole_matrix_D, dtype=np.complex128) * field_MV_per_cm * cls.DIPOLE_FIELD_TO_RABI_FS_INV
 
+    @staticmethod
+    def _field_payload(field: FieldPhyRoot) -> dict[str, Any]:
+        if not isinstance(field, FieldPhyRoot):
+            raise TypeError("field must be a FieldPhyRoot instance.")
+        payload = field.to_dict()
+        if not isinstance(payload, dict):
+            raise TypeError("field.to_dict() must return a dict.")
+        return payload
+
+    @classmethod
+    def field_reference_MV_per_cm(cls, field: FieldPhyRoot) -> float:
+        """读取 solver 归一化所需的 reference E0，单位 MV/cm。
+
+        当前 Hamiltonian 的 coupling matrix 已经吸收 `mu * E0 / hbar`，
+        因此 field callable 必须返回 `E(t) / reference`。该 reference 是
+        field 的正式数值接口，不从 `to_dict()` metadata 读取。
+        """
+
+        if not isinstance(field, FieldPhyRoot):
+            raise TypeError("field must be a FieldPhyRoot instance.")
+        value = field.reference_MV_per_cm
+        if value is None or float(value) == 0.0:
+            raise ValueError(
+                "field.reference_MV_per_cm must be nonzero for solver normalization. "
+                "Custom FieldPhyRoot subclasses must provide reference_MV_per_cm."
+            )
+        return float(value)
+
     def normalize(self, p: NLevelPhysicalParams) -> SolverParams:
         self._validate_physical_params(p)
         energies_fs_inv = np.asarray(self.energy_eV_to_fs_inv(np.asarray(p.energies_eV, dtype=float)), dtype=float)
-        omega_L_fs_inv = float(self.energy_eV_to_fs_inv(p.laser_energy_eV))
+        reference_field_MV_per_cm = self.field_reference_MV_per_cm(p.field)
         coupling_matrix_fs_inv = self.coupling_matrix_fs_inv_from_mu_and_field(
             np.asarray(p.dipole_matrix_D, dtype=np.complex128),
-            p.field_MV_per_cm,
+            reference_field_MV_per_cm,
         )
         relaxation_fs = tuple(self._relaxation_channel_to_rate_dict(channel) for channel in p.relaxation_channels)
         dephasing_fs = tuple(self._pure_dephasing_channel_to_rate_dict(channel) for channel in p.pure_dephasing_channels)
@@ -77,18 +111,49 @@ class ParaNormalizer:
         rate_candidates = [float(abs(value)) for value in coupling_matrix_fs_inv.ravel() if abs(value) > 0]
         rate_candidates.extend(abs(float(ch["rate_fs_inv"])) for ch in relaxation_fs if ch["rate_fs_inv"] > 0)
         rate_candidates.extend(abs(float(ch["rate_fs_inv"])) for ch in dephasing_fs if ch["rate_fs_inv"] > 0)
-        if len(energies_fs_inv) >= 2:
-            rate_candidates.append(abs(float(energies_fs_inv[1] - energies_fs_inv[0] - omega_L_fs_inv)))
-        if p.pulse_sigma_fs is not None and p.pulse_sigma_fs > 0:
-            rate_candidates.append(1.0 / p.pulse_sigma_fs)
+
+        # 这里只读取 FieldPhyRoot 的通用接口，不按 Gaussian、CW、TAField、
+        # TwoDESField 或 FieldPhySeries 等具体类型分支。field 自身的时间
+        # 尺度提示应由 normalization_rate_candidates_fs_inv 暴露。
+        field_rate_candidates = getattr(
+            p.field,
+            "normalization_rate_candidates_fs_inv",
+            None,
+        )
+
+        if field_rate_candidates is None:
+            warnings.warn(
+                (
+                    f"{p.field.__class__.__name__} does not provide "
+                    "normalization_rate_candidates_fs_inv. "
+                    "Field-specific auto-scale hints will be skipped. "
+                    "For custom fields with known fast time scales, consider defining "
+                    "normalization_rate_candidates_fs_inv as an iterable of fs^-1 rates."
+                ),
+                UserWarning,
+                stacklevel = 2,
+            )
+        else:
+            rate_candidates.extend(
+                abs(float(value))
+                for value in field_rate_candidates
+                if abs(float(value)) > 0
+            )
+
         time_scale_fs = self._choose_time_scale_fs(rate_candidates, energies_fs_inv)
 
         t_start = p.t_start_fs / time_scale_fs
         t_end = p.t_end_fs / time_scale_fs
         dt = p.dt_fs / time_scale_fs
         tlist = self._build_tlist(t_start, t_end, dt)
-        pulse_center = None if p.pulse_center_fs is None else p.pulse_center_fs / time_scale_fs
-        pulse_sigma = None if p.pulse_sigma_fs is None else p.pulse_sigma_fs / time_scale_fs
+        # Normalizer intentionally does not parse field-specific pulse metadata.
+        # If a solver later needs pulse centers, delays, or sequence metadata,
+        # it should read them from the field object or a spectroscopy layer,
+        # not from normalization internals.
+        pulse_center = None
+        pulse_sigma = None
+        pulse_center_fs = None
+        pulse_sigma_fs = None
 
         solver = SolverParams(
             time_scale_fs=time_scale_fs,
@@ -101,16 +166,16 @@ class ParaNormalizer:
             pure_dephasing_channels_fs_inv=dephasing_fs,
             relaxation_channels_code=tuple(self._scale_rate_dict(item, time_scale_fs) for item in relaxation_fs),
             pure_dephasing_channels_code=tuple(self._scale_rate_dict(item, time_scale_fs) for item in dephasing_fs),
-            omega_L_fs_inv=omega_L_fs_inv,
-            omega_L=omega_L_fs_inv * time_scale_fs,
+            omega_L_fs_inv=None,
+            omega_L=None,
             t_start=t_start,
             t_end=t_end,
             dt=dt,
             tlist=tlist,
             pulse_center=pulse_center,
             pulse_sigma=pulse_sigma,
-            pulse_center_fs=p.pulse_center_fs,
-            pulse_sigma_fs=p.pulse_sigma_fs,
+            pulse_center_fs=pulse_center_fs,
+            pulse_sigma_fs=pulse_sigma_fs,
         )
         self.last_physical = p
         self.last_solver = solver
@@ -167,20 +232,18 @@ class ParaNormalizer:
         dipole = np.asarray(p.dipole_matrix_D, dtype=np.complex128)
         if dipole.shape != (n, n):
             raise ValueError("dipole_matrix_D 必须是 N x N，并与 energies_eV 长度一致。")
-        if not np.allclose(dipole, dipole.conj().T, rtol=1e-10, atol=1e-12):
-            raise ValueError("dipole_matrix_D must be Hermitian: mu[j, i] = conj(mu[i, j]).")
-        if np.max(np.abs(np.diag(dipole).imag)) > 1e-12:
-            raise ValueError("diagonal elements of dipole_matrix_D must be real within numerical tolerance.")
+        # `dipole_matrix_D` 表示物理偶极矩算符，必须是 Hermitian；这允许
+        # complex transition dipole，但会拒绝非共轭的跃迁矩阵元和虚数对角元。
+        if not np.allclose(dipole, dipole.conj().T):
+            raise ValueError("dipole_matrix_D 必须是 Hermitian；transition dipole 需要满足 mu_ij = conj(mu_ji)。")
         if p.basis is not None and len(p.basis) != n:
             raise ValueError("basis 长度必须与 energies_eV 一致。")
         if p.t_end_fs <= p.t_start_fs:
             raise ValueError("t_end_fs 必须大于 t_start_fs。")
         if p.dt_fs <= 0:
             raise ValueError("dt_fs 必须为正。")
-        if p.pulse_sigma_fs is not None and p.pulse_sigma_fs <= 0:
-            raise ValueError("pulse_sigma_fs 必须为正。")
-        if p.field is not None and not isinstance(p.field, FieldPhyRoot):
-            raise TypeError("field must be None or a FieldPhyRoot instance.")
+        if not isinstance(p.field, FieldPhyRoot):
+            raise TypeError("field must be a FieldPhyRoot instance.")
         if p.input_description is not None and not isinstance(p.input_description, str):
             raise TypeError("input_description must be None or str.")
         if p.input_metadata is not None and not isinstance(p.input_metadata, dict):
@@ -217,9 +280,10 @@ class ParaNormalizer:
     ) -> float | np.ndarray:
         """把真实电场 MV/cm 归一化为 solver field callable 使用的无量纲 code signal。
 
-        N-level coupling matrix 已经包含 `mu * E0 / hbar`，因此进入 Hamiltonian
-        的 field callable 应表示 `E(t) / E0`。`reference_field_MV_per_cm`
-        就是这个 E0；为 0 时直接报错，避免静默产生无物理意义的归一化。
+        N-level coupling matrix 已经包含 `mu * reference / hbar`，因此进入
+        Hamiltonian 的 field callable 应表示 `E(t) / reference`。
+        `reference_field_MV_per_cm` 为 0 时直接报错，避免静默产生无物理意义
+        的归一化。
         """
 
         if reference_field_MV_per_cm == 0:
@@ -247,10 +311,7 @@ class ParaNormalizer:
         s = self._require_solver(solver)
         reference = reference_field_MV_per_cm
         if reference is None:
-            physical = getattr(self, "last_physical", None)
-            if physical is None:
-                raise RuntimeError("reference_field_MV_per_cm is required without last_physical.")
-            reference = physical.field_MV_per_cm
+            reference = self.field_reference_MV_per_cm(field_phy)
         return make_code_field_adapter(
             field_phy,
             self,

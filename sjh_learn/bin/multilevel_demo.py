@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 if __package__ is None or __package__ == "":
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from sjh_learn.utils.core import (
     NLevelPhysicalParams,
@@ -23,6 +23,7 @@ from sjh_learn.utils.core import (
     RelaxationChannel,
     run_case,
 )
+from sjh_learn.utils.fields import make_default_carrier_field
 from sjh_learn.utils.io import (
     QuantumResultIO,
     save_figure,
@@ -62,11 +63,13 @@ def make_demo_params() -> NLevelPhysicalParams:
         basis=("g", "e1", "e2"),
         energies_eV=tuple(float(ParaNormalizer.fs_inv_to_energy_eV(value)) for value in old_code_energies),
         dipole_matrix_D=tuple(tuple(float(item) for item in row) for row in dipole_matrix_D),
-        field_MV_per_cm=field_MV_per_cm,
-        laser_energy_eV=float(ParaNormalizer.fs_inv_to_energy_eV(1.0)),
         t_start_fs=0.0,
         t_end_fs=120.0,
         dt_fs=0.05,
+        field=make_default_carrier_field(
+            E0_MV_per_cm=field_MV_per_cm,
+            laser_energy_eV=float(ParaNormalizer.fs_inv_to_energy_eV(1.0)),
+        ),
         relaxation_channels=(
             RelaxationChannel(name="relaxation_2_to_1", from_level=2, to_level=1, rate_fs_inv=0.02),
             RelaxationChannel(name="relaxation_1_to_0", from_level=1, to_level=0, rate_fs_inv=0.01),

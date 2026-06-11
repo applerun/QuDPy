@@ -6,12 +6,21 @@ callable 由 `ParaNormalizer` 和 core solver 内部生成，不作为 public AP
 
 from .lab_fields import (
     CarrierFieldPhysical,
-    CompositeLabFieldPhysical,
     FieldPhyCustomed,
     FieldPhyRoot,
     GaussianCarrierFieldPhysical,
-    default_field_from_physical_params,
+    make_default_carrier_field,
+    make_default_gaussian_carrier_field,
     rebuild_physical_field,
+)
+from .field_series import (
+    FieldPhySeries,
+    TAField,
+    TwoDESField,
+    iter_ta_gaussian_fields,
+    iter_twodes_gaussian_fields,
+    make_ta_gaussian_field,
+    make_twodes_gaussian_field,
 )
 
 __all__ = [
@@ -19,7 +28,14 @@ __all__ = [
     "FieldPhyCustomed",
     "CarrierFieldPhysical",
     "GaussianCarrierFieldPhysical",
-    "CompositeLabFieldPhysical",
-    "default_field_from_physical_params",
+    "make_default_carrier_field",
+    "make_default_gaussian_carrier_field",
     "rebuild_physical_field",
+    "FieldPhySeries",
+    "TAField",
+    "TwoDESField",
+    "make_ta_gaussian_field",
+    "make_twodes_gaussian_field",
+    "iter_ta_gaussian_fields",
+    "iter_twodes_gaussian_fields",
 ]

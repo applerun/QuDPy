@@ -44,14 +44,14 @@ def _json_safe(value: Any) -> Any:
         return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
     if isinstance(value, Qobj):
         return {"qobj_shape": list(value.shape), "data": _complex_matrix_to_json(value.full())}
+    if isinstance(value, complex):
+        return {"real": float(value.real), "imag": float(value.imag)}
     if isinstance(value, np.ndarray):
         if np.iscomplexobj(value):
-            return _complex_matrix_to_json(value)
+            return _json_safe(value.tolist())
         return value.tolist()
     if isinstance(value, np.generic):
         return _json_safe(value.item())
-    if isinstance(value, complex):
-        return {"real": float(value.real), "imag": float(value.imag)}
     if callable(value):
         return {"callable_serialized": False, "repr": repr(value)}
     if isinstance(value, dict):
@@ -85,13 +85,6 @@ def _phase_with_mask(values: np.ndarray, *, threshold: float = 1e-8) -> tuple[np
     return phase, phase_unwrapped
 
 
-def _real_if_close(values: np.ndarray, *, tolerance: float = 1e-12) -> np.ndarray:
-    array = np.asarray(values)
-    if np.iscomplexobj(array) and np.max(np.abs(array.imag)) <= tolerance:
-        return array.real
-    return array
-
-
 def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
     return {
         "time_scale_fs": solver.time_scale_fs,
@@ -103,7 +96,6 @@ def _solver_params_fs_inv_dict(solver: SolverParams) -> dict[str, Any]:
         "omega_L_fs_inv": solver.omega_L_fs_inv,
         "detuning_fs_inv": solver.detuning_fs_inv,
         "rabi_fs_inv": solver.rabi_fs_inv,
-        "rabi_fs_inv_complex": solver.rabi_fs_inv_complex,
         "gamma1_fs_inv": solver.gamma1_fs_inv,
         "gamma_phi_fs_inv": solver.gamma_phi_fs_inv,
         "gamma2_fs_inv": solver.gamma2_fs_inv,
@@ -120,7 +112,6 @@ def _solver_params_code_dict(solver: SolverParams) -> dict[str, Any]:
         "omega_L_code": solver.omega_L,
         "detuning_code": solver.detuning,
         "rabi_code": solver.rabi,
-        "rabi_code_complex": solver.rabi_complex,
         "gamma1_code": solver.gamma1,
         "gamma_phi_code": solver.gamma_phi,
         "gamma2_code": solver.gamma2,
@@ -217,16 +208,16 @@ class DynamicsResult:
         if self.drive is None:
             return None
         sample_times = self.times if times is None else np.asarray(times, dtype=float)
-        values = np.asarray(self.drive(sample_times), dtype=np.complex128)
+        values = np.asarray(self.drive(sample_times), dtype=float)
         if self.mode == "rwa" and self.solver_params is not None:
-            return _real_if_close(values * self.solver_params.rabi_complex)
-        return _real_if_close(values)
+            return values * float(self.solver_params.rabi)
+        return values
 
     def drive_fs_inv_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         drive_code = self.drive_code_values(times)
         if drive_code is None or self.solver_params is None or self.mode != "rwa":
             return None
-        return _real_if_close(np.asarray(drive_code, dtype=np.complex128) / float(self.solver_params.time_scale_fs))
+        return np.asarray(drive_code, dtype=float) / float(self.solver_params.time_scale_fs)
 
     def field_MV_per_cm_values(
         self,
@@ -264,11 +255,15 @@ class DynamicsResult:
         if np.asarray(sample_times_fs).shape != np.asarray(sample_times_code).shape:
             raise ValueError("times and times_fs shapes do not match.")
         # 输出层必须复用 solver 实际使用的 lab-frame field callable，避免展示/分析
-        # 重新拼写物理场函数后与 Hamiltonian 输入脱节。drive(times_code) 是无量纲
-        # solver 电场形状，乘以 field_MV_per_cm 得到物理单位 MV/cm。
+        # 重新拼写物理场函数后与 Hamiltonian 输入脱节。
         if hasattr(self.drive, "physical"):
             return np.asarray(self.drive.physical(sample_times_fs), dtype=float)
-        return np.asarray(self.drive(sample_times_code), dtype=float) * float(self.physical_params.field_MV_per_cm)
+        reference = None
+        if isinstance(self.drive_dict, dict):
+            reference = self.drive_dict.get("reference_field_MV_per_cm")
+        if reference is None:
+            raise ValueError("lab_exact drive metadata must contain reference_field_MV_per_cm.")
+        return np.asarray(self.drive(sample_times_code), dtype=float) * float(reference)
 
     def drive_values(self, times: np.ndarray | None = None) -> np.ndarray | None:
         return self.drive_code_values(times)

@@ -1,5 +1,13 @@
 # sjh_learn 架构记录（详细版）
 
+> 注意：本文档保留早期设计讨论和历史上下文，其中包含 RWA drive、
+> solver-unit field、旧 two-level helper 和旧 metadata 表述。当前
+> field / normalizer / solver API 请以
+> [current_architecture_zh.md](current_architecture_zh.md)、
+> [field_zh.md](field_zh.md) 和 [normalizer_zh.md](normalizer_zh.md)
+> 为准。不要从本文档恢复旧路径，例如 solver-unit Code* field、
+> `args["fields"]`、RWA drive 或 core `ParameterSweep`。
+
 本文档在当前 `document.md` 的基础上扩展，重点记录各模块职责、主要函数用途、变量含义、`DynamicsResult` 字段解释，以及数据保存逻辑。当前目标是让代码既能服务 two-level optical Bloch 学习，又尽量保持对 multi-level 扩展友好。
 
 ## 1. 总体设计原则
@@ -66,15 +74,16 @@ rwa.mode      = "rwa"
 
 ```text
 sjh_learn/
-├─ optical_bloch_demo.py
-├─ multilevel_demo.py
-├─ n2_equivalence_check.py
+├─ bin/
+│  ├─ multilevel_demo.py
+│  └─ n2_equivalence_check.py
 ├─ examples/
-│  ├─ rwa_common.py
-│  ├─ rwa_01_field_strength.py
-│  ├─ rwa_02_dephasing.py
-│  ├─ rwa_03_redistribution.py
-│  └─ rwa_04_dephasing_and_redistribution.py
+│  └─ absorption/
+│     ├─ absorption_01_chi_analytic.py
+│     ├─ cw_pulse_absorption_compare.py
+│     └─ three_level_absorption_lab_exact.py
+├─ scratch/
+│  └─ validate_*.py
 └─ utils/
    ├─ fields/
    ├─ model.py
@@ -89,10 +98,10 @@ sjh_learn/
 
 说明：
 
-- `optical_bloch_demo.py`：Lab-frame / rotating view / RWA 三种结果对比；
-- `multilevel_demo.py`：multi-level lab-frame 示例；
-- `n2_equivalence_check.py`：检查 N=2 physical mainline 与显式 normalize+solver 路径一致性；
-- `examples/rwa_*.py`：RWA-only 参数扫描和物理现象验证；
+- `bin/multilevel_demo.py`：当前 N-level explicit-field API demo；
+- `bin/n2_equivalence_check.py`：检查 N=2 physical mainline 与显式 normalize+solver 路径一致性；
+- `examples/absorption/`：稳定 absorption 示例；
+- `scratch/`：临时验证脚本；
 - `utils/`：核心模块。
 
 ## 3. `fields.py`
@@ -201,9 +210,10 @@ g(t) = g0 exp[-(t - t0)^2 / (2 sigma^2)]
 - `time_unit`：时间单位；
 - `amplitude_unit`：drive 单位。
 
-物理含义：RWA 中去掉载波，保留脉冲包络对应的有效耦合。
+RWA drive 是历史说明；当前 QuDPy 主线只维护 lab-frame physical field，
+RWA 路径默认禁用。
 
-### 3.4 `CarrierField`
+### 3.4 `CarrierFieldPhysical`
 
 Lab-frame 真实电场。
 
@@ -215,7 +225,7 @@ E(t) = 2 E0 cos(omega_L t + phase)
 
 重要变量：
 
-- `E0` 或 `amplitude`：电场幅度参数；
+- `E0_MV_per_cm`：电场幅度参数，单位 MV/cm；
 - `omega_L`：激光角频率；
 - `phase`：初始相位；
 - `field_unit`：电场单位，例如 `MV/cm`；
@@ -229,7 +239,7 @@ field_MV_per_cm is E0 in E(t) = 2 E0 cos(omega_L t + phase)
 
 因此若 `field_MV_per_cm = 0.1`，峰值电场为 `0.2 MV/cm`。
 
-### 3.5 `GaussianCarrierField`
+### 3.5 `GaussianCarrierFieldPhysical`
 
 带高斯包络的 Lab-frame 真实电场。
 
@@ -247,14 +257,14 @@ E(t) = 2 E0 exp[-(t - t0)^2 / (2 sigma^2)] cos(omega_L t + phase)
 - `omega_L`：载波角频率；
 - `phase`：载波相位。
 
-与 `GaussianDrive` 的区别：
+与旧 RWA drive 的区别：
 
-- `GaussianCarrierField` 是 Lab-frame 真实电场，包含 `cos(omega_L t)`；
-- `GaussianDrive` 是 RWA 慢变量 drive，不包含 optical carrier。
+- `GaussianCarrierFieldPhysical` 是 Lab-frame 真实电场，包含 `cos(omega_L t)`；
+- 旧 RWA 慢变量 drive 不再作为当前 API 暴露。
 
-### 3.6 `CompositeField`
+### 3.6 `FieldPhySeries`
 
-多个 field 的叠加。
+physical-layer 多个 field 的叠加。
 
 表达式：
 
@@ -1452,8 +1462,8 @@ rwa = run_rwa_case(parameters)
 
 重点：
 
-- Lab-frame：`GaussianCarrierField`；
-- RWA：`GaussianDrive`；
+- Lab-frame：`GaussianCarrierFieldPhysical`；
+- 多脉冲：`FieldPhySeries` / `TAField` / `TwoDESField`；
 - 观察 pulse width、pulse area、peak field 对 population 和 coherence 的影响。
 
 ### 17.3 Polarization
@@ -1500,12 +1510,9 @@ P(t) = Tr[mu rho(t)]
 8. 每次重构后至少运行：
 
 ```text
-conda --no-plugins run -n quantum python -m compileall sjh_learn
-conda --no-plugins run -n quantum python sjh_learn\multilevel_demo.py
-conda --no-plugins run -n quantum python sjh_learn\n2_equivalence_check.py
-conda --no-plugins run -n quantum python sjh_learn\optical_bloch_demo.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_01_field_strength.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_02_dephasing.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_03_redistribution.py
-conda --no-plugins run -n quantum python sjh_learn\examples\rwa_04_dephasing_and_redistribution.py
+conda --no-plugins run -n quantum python -m compileall sjh_learn scratch
+conda --no-plugins run -n quantum python sjh_learn\bin\multilevel_demo.py
+conda --no-plugins run -n quantum python sjh_learn\bin\n2_equivalence_check.py
+conda --no-plugins run -n quantum python sjh_learn\examples\absorption\cw_pulse_absorption_compare.py
+conda --no-plugins run -n quantum python sjh_learn\examples\absorption\three_level_absorption_lab_exact.py
 ```

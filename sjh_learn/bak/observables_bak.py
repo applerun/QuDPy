@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from sjh_learn.utils.constants import DEBYE_TO_C_M, EPSILON0_F_PER_M, FS_TO_S, HBAR_J_S
 
-DEBYE_TO_C_M = 3.33564e-30
-FS_INV_TO_S_INV = 1.0e15
-HBAR_J_S = 1.054571817e-34
-EPSILON0_F_PER_M = 8.8541878128e-12
+
+FS_INV_TO_S_INV = 1.0 / FS_TO_S
 
 
 def _as_density_trajectory(rho_t) -> np.ndarray:

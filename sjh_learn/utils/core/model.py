@@ -7,13 +7,12 @@ from qutip import Qobj, basis
 
 from typing import Any
 
-from sjh_learn.utils.fields.solver_inputs import CodeCarrierField, CodeGaussianCarrierField, total_electric_field_value
 from sjh_learn.utils.core.parameters import NLevelSolverParams, as_complex_matrix
 
 
 def electric_field(times: np.ndarray, amplitude: float, omega_drive: float) -> np.ndarray:
-    field = CodeCarrierField(amplitude_code=amplitude, omega_code=omega_drive)
-    return np.asarray(field(np.asarray(times, dtype=float)), dtype=float)
+    t = np.asarray(times, dtype=float)
+    return 2.0 * float(amplitude) * np.cos(float(omega_drive) * t)
 
 
 def compute_detuning(epsilon_1: float, epsilon_2: float, omega_drive: float, hbar: float) -> float:
@@ -60,38 +59,23 @@ def coherent_superposition_density_matrix() -> Qobj:
     return psi * psi.dag()
 
 
-def default_field_config(parameters: NLevelSolverParams):
-    # lab-frame 主线的耦合强度已经写入 N-level dipole/coupling matrix。
-    # 默认 optical carrier 只提供无量纲时间包络，幅值固定为 1 code unit。
-    if parameters.pulse_sigma is None:
-        return CodeCarrierField(
-            amplitude_code=1.0,
-            omega_code=parameters.omega_drive,
+def parameter_field(parameters: NLevelSolverParams):
+    if parameters.field is None:
+        raise ValueError(
+            "NLevelSolverParams.field is required. Construct physical FieldPhyRoot input "
+            "and convert it with ParaNormalizer.make_code_field()."
         )
-    return CodeGaussianCarrierField(
-        amplitude_code=1.0,
-        omega_code=parameters.omega_drive,
-        center_code=0.0 if parameters.pulse_center is None else parameters.pulse_center,
-        sigma_code=parameters.pulse_sigma,
-    )
-
-
-def parameter_fields(parameters: NLevelSolverParams) -> tuple[Any, ...]:
-    if parameters.fields is not None:
-        return tuple(parameters.fields)
-    return (default_field_config(parameters),)
+    return parameters.field
 
 
 def pulse_envelope(time: float, pulse_center: float | None, pulse_sigma: float | None) -> float:
     if pulse_sigma is None:
         return 1.0
-    field = CodeGaussianCarrierField(
-        amplitude_code=0.0,
-        omega_code=0.0,
-        center_code=0.0 if pulse_center is None else pulse_center,
-        sigma_code=pulse_sigma,
-    )
-    return float(field.envelope(time))
+    center = 0.0 if pulse_center is None else float(pulse_center)
+    sigma = float(pulse_sigma)
+    if sigma <= 0:
+        raise ValueError("pulse_sigma must be positive.")
+    return float(np.exp(-((float(time) - center) ** 2) / (2.0 * sigma**2)))
 
 
 def build_static_hamiltonian(parameters: NLevelSolverParams) -> Qobj:
@@ -108,6 +92,16 @@ def _require_hermitian_matrix(matrix: np.ndarray, name: str) -> None:
         raise ValueError(f"{name} must be Hermitian.")
 
 
+def _field_value_from_args(time: float, args: dict[str, Any]) -> float:
+    field = args.get("field")
+    if field is None:
+        raise ValueError(
+            'lab_exact Hamiltonian requires args["field"]. Use physical FieldPhyRoot input '
+            "and ParaNormalizer.make_code_field()."
+        )
+    return float(field(float(time)))
+
+
 def build_lab_hamiltonian(parameters: NLevelSolverParams) -> list[Qobj | list[object]]:
     h0 = build_static_hamiltonian(parameters)
     dipole_matrix = as_complex_matrix(parameters.dipole_matrix)
@@ -118,7 +112,7 @@ def build_lab_hamiltonian(parameters: NLevelSolverParams) -> list[Qobj | list[ob
         h0,
         [
             -dipole_operator,
-            lambda t, args: total_electric_field_value(float(t), args["fields"]),
+            lambda t, args: _field_value_from_args(float(t), args),
         ],
     ]
 
@@ -182,8 +176,7 @@ __all__ = [
     "initial_density_matrix",
     "excited_density_matrix",
     "coherent_superposition_density_matrix",
-    "default_field_config",
-    "parameter_fields",
+    "parameter_field",
     "pulse_envelope",
     "build_lab_hamiltonian",
     "build_rwa_hamiltonian",
