@@ -334,21 +334,21 @@ publication figure workflow
 典型 analysis 用法：
 
 ```python
-from sjh_learn.utils.spectroscopy import polarization_C_per_m2, lab_frame_fft_response
+from sjh_learn.utils.spectroscopy import polarization_C_per_m2, lab_frame_fft_response_legacy
 
 rho_t = result.density_array()
 P_t = polarization_C_per_m2(
-    rho_t,
-    result.physical_params.dipole_matrix_D,
-    number_density_m3=1.0e24,
+	rho_t,
+	result.physical_params.dipole_matrix_D,
+	number_density_m3 = 1.0e24,
 )
 
 E_t = result.field_MV_per_cm_values()
 
-response = lab_frame_fft_response(
-    t_fs=result.times_fs,
-    E_MV_per_cm=E_t,
-    P_C_per_m2=P_t,
-    rhoij=result.matrix_element(0, 1),
+response = lab_frame_fft_response_legacy(
+	t_fs = result.times_fs,
+	E_MV_per_cm = E_t,
+	P_C_per_m2 = P_t,
+	rhoij = result.matrix_element(0, 1),
 )
 ```

@@ -82,7 +82,7 @@ from sjh_learn.utils.core import (
     run_case,
 )
 from sjh_learn.utils.fields import make_ta_gaussian_field
-from sjh_learn.utils.spectroscopy import lab_frame_fft_response, polarization_C_per_m2
+from sjh_learn.utils.spectroscopy import lab_frame_fft_response_legacy, polarization_C_per_m2
 
 try:
     from sjh_learn.utils.io import save_result_case
@@ -409,7 +409,7 @@ class TaExp:
         E_probe = np.asarray(probe_field(t_fs), dtype=float)
         P_t = self.polarization_from_result(result)
 
-        return lab_frame_fft_response(
+        return lab_frame_fft_response_legacy(
             t_fs=t_fs,
             E_MV_per_cm=E_probe,
             P_C_per_m2=P_t,

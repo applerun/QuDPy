@@ -5,7 +5,7 @@
 """
 
 from .observables import DEBYE_TO_C_M, dipole_expectation_D, polarization_C_per_m2
-from .spectra import apply_time_window, lab_frame_fft_response, rwa_fft_response, safe_complex_ratio
+from .spectra import apply_time_window, lab_frame_fft_response_legacy, rwa_fft_response, safe_complex_ratio
 from .theory import EPSILON0_F_PER_M, chi_two_level_linear, gamma2_fs_inv_from_T1_Tphi
 
 __all__ = [
@@ -15,7 +15,7 @@ __all__ = [
     "chi_two_level_linear",
     "dipole_expectation_D",
     "gamma2_fs_inv_from_T1_Tphi",
-    "lab_frame_fft_response",
+    "lab_frame_fft_response_legacy",
     "polarization_C_per_m2",
     "rwa_fft_response",
     "safe_complex_ratio",

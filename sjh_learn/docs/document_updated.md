@@ -455,11 +455,11 @@ TA response
 
 ```python
 from sjh_learn.utils.spectroscopy import (
-    dipole_expectation_D,
-    polarization_C_per_m2,
-    apply_time_window,
-    safe_complex_ratio,
-    lab_frame_fft_response,
+	dipole_expectation_D,
+	polarization_C_per_m2,
+	apply_time_window,
+	safe_complex_ratio,
+	lab_frame_fft_response_legacy,
 )
 ```
 

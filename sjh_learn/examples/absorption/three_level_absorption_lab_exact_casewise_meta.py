@@ -22,7 +22,7 @@ from sjh_learn.utils.core import (
 from sjh_learn.utils.analysis import DynamicsAnalysis
 from sjh_learn.utils.fields import make_default_gaussian_carrier_field
 from sjh_learn.utils.io import save_result_case
-from sjh_learn.utils.spectroscopy.spectra import lab_frame_fft_response
+from sjh_learn.utils.spectroscopy.spectra import lab_frame_fft_response_legacy
 from sjh_learn.utils.plotting import (
     plot_normalized_curve,
     set_axis_ylim_from_curves,
@@ -242,7 +242,7 @@ def run_case_and_extract(
         rhoij_t = get_coherence(analysis, pair=pair)
         coherences[pair] = rhoij_t
 
-        responses[pair] = lab_frame_fft_response(
+        responses[pair] = lab_frame_fft_response_legacy(
             t_fs=t_fs,
             E_MV_per_cm=E_t,
             P_C_per_m2=P_t,
@@ -571,7 +571,9 @@ def main():
             "workflow_metadata": "Only workflow-level settings, output paths, and compact sanity summary.",
             "case_wise_metadata": (
                 "Complete simulation case metadata is stored under simulation/<case_name>/ "
-                "or simulation/res_per_case/<case_name>/ depending on the active save_result_case layout."
+                "when save_result_case is called with simulation/ as root. Workflow-specific "
+                "grouping directories, such as simulation/res_per_delay/, should be chosen "
+                "explicitly by the producer script when needed."
             ),
             "checkpoint_policy": "Checkpoints are stored under simulation/checkpoints/ and are independent of the case export layout.",
         },

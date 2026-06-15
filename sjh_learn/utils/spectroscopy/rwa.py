@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 
 from sjh_learn.utils.core.normalization import ParaNormalizer
-from .observables import DEBYE_TO_C_M
-from .spectra import lab_frame_fft_response
+from sjh_learn.utils.constants import DEBYE_TO_C_M
+from .spectra import lab_frame_fft_response_legacy
 
 
 def _normalize_for_shape(y: np.ndarray) -> np.ndarray:
@@ -125,7 +125,7 @@ def choose_rwa_reconstructed_p_over_e_response(
             laser_energy_eV=laser_energy_eV,
             carrier_sign=sign,
         )
-        response = lab_frame_fft_response(
+        response = lab_frame_fft_response_legacy(
             t_fs=t_fs,
             E_MV_per_cm=E_t,
             P_C_per_m2=P_recon,
