@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
 import sys
 
 import matplotlib.pyplot as plt
@@ -21,8 +20,8 @@ from sjh_learn.utils.core import (
 )
 from sjh_learn.utils.analysis import DynamicsAnalysis
 from sjh_learn.utils.fields import make_default_gaussian_carrier_field
-from sjh_learn.utils.io import save_result_case
-from sjh_learn.utils.spectroscopy.spectra import lab_frame_fft_response_legacy
+from sjh_learn.utils.io import save_result_case, write_json
+from sjh_learn.utils.spectroscopy.absorption_spectra import lab_frame_fft_response_legacy
 from sjh_learn.utils.plotting import (
     plot_normalized_curve,
     set_axis_ylim_from_curves,
@@ -62,39 +61,6 @@ def reset_results_csv(output_dir: Path) -> None:
     if results_csv.exists():
         results_csv.unlink()
         print(f"Removed stale results.csv: {results_csv}")
-
-
-def json_safe(value):
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return json_safe(value.to_dict())
-    if hasattr(value, "__dataclass_fields__"):
-        return json_safe(
-            {
-                name: getattr(value, name)
-                for name in value.__dataclass_fields__
-            }
-        )
-    if isinstance(value, dict):
-        return {str(key): json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_safe(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return json_safe(value.tolist())
-    if isinstance(value, np.generic):
-        return json_safe(value.item())
-    if isinstance(value, complex):
-        return {"real": float(value.real), "imag": float(value.imag)}
-    if isinstance(value, Path):
-        return str(value)
-    return value
-
-
-def write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(json_safe(payload), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
 
 
 def stringify_written_paths(written) -> dict[str, str]:

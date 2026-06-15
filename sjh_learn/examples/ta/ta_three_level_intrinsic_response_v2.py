@@ -32,10 +32,9 @@ Changes in this revision
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field as dataclass_field
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 import csv
-import json
 import math
 import sys
 from typing import Any
@@ -57,6 +56,7 @@ from sjh_learn.utils.core import (
     run_case,
 )
 from sjh_learn.utils.fields import make_ta_gaussian_field
+from sjh_learn.utils.io import write_json
 from sjh_learn.utils.spectroscopy import lab_frame_fft_response_legacy, polarization_C_per_m2
 
 try:
@@ -67,42 +67,6 @@ except Exception:  # pragma: no cover - optional compatibility guard
 
 EXAMPLE_NAME = "ta_three_level_intrinsic_response"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "outputs" / EXAMPLE_NAME
-
-
-def _json_safe(value: Any) -> Any:
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return _json_safe(value.to_dict())
-
-    if hasattr(value, "__dataclass_fields__"):
-        return _json_safe(asdict(value))
-
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-
-    if isinstance(value, np.ndarray):
-        return _json_safe(value.tolist())
-
-    if isinstance(value, np.generic):
-        return value.item()
-
-    if isinstance(value, complex):
-        return {"real": float(np.real(value)), "imag": float(np.imag(value))}
-
-    if isinstance(value, Path):
-        return str(value)
-
-    return value
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
 
 
 def _write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -708,7 +672,7 @@ class TaResultIO:
 
         metadata = dict(result.metadata)
         metadata["output_files"] = output_files
-        _write_json(output_dir / "meta.json", metadata)
+        write_json(output_dir / "meta.json", metadata)
         output_files["metadata"] = str(output_dir / "meta.json")
 
         return output_files

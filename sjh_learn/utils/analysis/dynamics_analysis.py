@@ -7,7 +7,7 @@ solver/result 主架构。
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields as dataclass_fields, is_dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ import numpy as np
 
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.core.results import DynamicsResult
+from sjh_learn.utils.json_utils import make_json_safe, write_json
 from .observables import (
     dipole_expectation_D,
     polarization_C_per_m2 as observable_polarization_C_per_m2,
@@ -28,37 +29,6 @@ def _require_pandas():
     except ImportError as exc:
         raise RuntimeError("pandas is required for DynamicsAnalysis CSV output.") from exc
     return pd
-
-
-def _json_safe(value: Any) -> Any:
-    if type(value).__name__ == "ParaNormalizer":
-        return {"class": "ParaNormalizer", "note": "runtime object omitted from JSON metadata"}
-    if type(value).__name__ == "NLevelPhysicalParams":
-        payload = {
-            item.name: getattr(value, item.name)
-            for item in dataclass_fields(value)
-            if item.name != "field"
-        }
-        field_value = getattr(value, "field", None)
-        payload["field"] = None if field_value is None else _json_safe(field_value)
-        return _json_safe(payload)
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return _json_safe(value.to_dict())
-    if is_dataclass(value):
-        return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
-    if isinstance(value, np.ndarray):
-        if np.iscomplexobj(value):
-            return [{"real": float(item.real), "imag": float(item.imag)} for item in value.ravel()]
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return _json_safe(value.item())
-    if isinstance(value, complex):
-        return {"real": float(value.real), "imag": float(value.imag)}
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    return value
 
 
 def _safe_name(value: str | None, fallback: str) -> str:
@@ -484,7 +454,7 @@ class DynamicsAnalysis:
         positive_only: bool,
         response_rel_epsilon: float,
     ) -> dict[str, Any]:
-        return _json_safe(
+        return make_json_safe(
             {
                 "result_mode": self.result.mode,
                 "dimension": self.result.dimension(),
@@ -555,7 +525,7 @@ class DynamicsAnalysis:
             positive_only=positive_only,
             response_rel_epsilon=response_rel_epsilon,
         )
-        return _json_safe(
+        return make_json_safe(
             {
                 "analysis_type": "DynamicsAnalysis",
                 "example_name": self.example_name,
@@ -736,7 +706,7 @@ class DynamicsAnalysis:
                 response_rel_epsilon=response_rel_epsilon,
                 output_files=output_files,
             )
-            metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+            write_json(metadata_path, metadata)
             written["analysis_metadata"] = metadata_path
 
         return written

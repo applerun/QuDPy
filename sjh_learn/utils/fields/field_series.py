@@ -1,68 +1,44 @@
-"""物理多脉冲 field 组合工具。
+"""物理 field 线性叠加容器。
 
-本模块定义物理单位下的 field series。它们仍然是 `FieldPhyRoot`，因此可直接
-传入 `NLevelPhysicalParams(..., field=...)`。Normalizer 不解析 TA / 2DES
-细节，只通过 `FieldPhyRoot` 的通用接口获取电场、metadata 和 auto-scale
-候选。
+本模块只定义通用的物理场叠加对象，不包含 TA / 2DES 等具体实验语义。
+``FieldPhySeries`` 仍然是 ``FieldPhyRoot``，因此可直接传入
+``NLevelPhysicalParams(..., field=...)``。
+
+边界说明：
+    - ``FieldPhySeries`` 表示同一时刻多个物理 field 的线性叠加。
+    - 它不表示分段传播，也不表示 delay scan 或 parameter sweep。
+    - TA / 2DES 等 specific field 应放在 ``fields/specific/`` 下。
+    - active window 检测属于电场分析工具，应放在 ``field_windows.py``。
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
-from itertools import product
 from typing import Any
 
 import numpy as np
 
-from .lab_fields import (
-    FieldPhyRoot,
-    GaussianCarrierFieldPhysical,
-    make_default_gaussian_carrier_field,
-)
+from .lab_fields import FieldPhyRoot
 
 
 def _metadata_copy(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """复制 metadata，避免外部 dict 被内部对象共享修改。"""
+
     return dict(metadata or {})
-
-
-def _is_scan_value(value: Any) -> bool:
-    if isinstance(value, (str, bytes, dict)):
-        return False
-    if isinstance(value, FieldPhyRoot):
-        return False
-    return isinstance(value, Iterable)
-
-
-def _scan_items(params: dict[str, Any]) -> tuple[list[str], list[list[Any]]]:
-    names: list[str] = []
-    values: list[list[Any]] = []
-    for key, value in params.items():
-        if _is_scan_value(value):
-            names.append(key)
-            values.append(list(value))
-    return names, values
-
-
-def _iter_scan_params(params: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    names, values = _scan_items(params)
-    if not names:
-        yield dict(params)
-        return
-
-    for combo in product(*values):
-        item = dict(params)
-        for key, value in zip(names, combo):
-            item[key] = value
-        yield item
 
 
 @dataclass(frozen=True)
 class FieldPhySeries(FieldPhyRoot):
     """多个物理 field 的线性叠加。
 
-    `FieldPhySeries` 是 physical field 层的组合对象，不是 solver code-unit
-    field。它支持按 index 或 subfield name 提取子场。
+    ``FieldPhySeries`` 是 physical field 层的组合对象，不是 solver code-unit
+    field，也不表示 piecewise schedule。它只表示：
+
+        ``E_total(t_fs) = sum_k E_k(t_fs)``
+
+    支持按 index 或 subfield name 提取子场，便于外部 workflow 对 pump、probe
+    或其它 pulse 分别做 active window 检测。
     """
 
     fields: tuple[FieldPhyRoot, ...]
@@ -71,27 +47,38 @@ class FieldPhySeries(FieldPhyRoot):
     metadata: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        if not self.fields:
+        fields = tuple(self.fields)
+        if not fields:
             raise ValueError("FieldPhySeries requires at least one subfield.")
 
-        for field in self.fields:
+        for field in fields:
             if not isinstance(field, FieldPhyRoot):
                 raise TypeError("FieldPhySeries.fields must contain FieldPhyRoot instances.")
+        object.__setattr__(self, "fields", fields)
 
         if self.sub_field_names is None:
-            names = []
-            for idx, field in enumerate(self.fields):
+            names: list[str] = []
+            for idx, field in enumerate(fields):
                 payload = field.to_dict()
-                names.append(str(payload.get("name") or f"field_{idx}"))
+                names.append(str(payload.get("name") or getattr(field, "name", f"field_{idx}")))
             object.__setattr__(self, "sub_field_names", tuple(names))
-        else:
-            if len(self.sub_field_names) != len(self.fields):
-                raise ValueError("sub_field_names length must match fields length.")
-            if len(set(self.sub_field_names)) != len(self.sub_field_names):
-                raise ValueError("sub_field_names must be unique.")
+            return
+
+        names = tuple(str(name) for name in self.sub_field_names)
+        if len(names) != len(fields):
+            raise ValueError("sub_field_names length must match fields length.")
+        if len(set(names)) != len(names):
+            raise ValueError("sub_field_names must be unique.")
+        object.__setattr__(self, "sub_field_names", names)
 
     @property
     def reference_MV_per_cm(self) -> float | None:
+        """返回叠加场的参考幅度。
+
+        对线性叠加场，采用各子场参考幅度绝对值之和作为保守归一化尺度。
+        只要任一子场没有 reference，则返回 None。
+        """
+
         references: list[float] = []
         for field in self.fields:
             reference = field.reference_MV_per_cm
@@ -103,6 +90,8 @@ class FieldPhySeries(FieldPhyRoot):
 
     @property
     def normalization_rate_candidates_fs_inv(self) -> tuple[float, ...]:
+        """合并所有子场给出的 auto-scale 速率候选。"""
+
         candidates: list[float] = []
         for field in self.fields:
             candidates.extend(field.normalization_rate_candidates_fs_inv)
@@ -115,6 +104,8 @@ class FieldPhySeries(FieldPhyRoot):
         return total
 
     def get_field(self, key: int | str) -> FieldPhyRoot:
+        """按 index 或 subfield name 获取子场。"""
+
         if isinstance(key, int):
             return self.fields[key]
         if isinstance(key, str):
@@ -128,6 +119,12 @@ class FieldPhySeries(FieldPhyRoot):
 
     def __getitem__(self, key: int | str) -> FieldPhyRoot:
         return self.get_field(key)
+
+    def __iter__(self) -> Iterator[FieldPhyRoot]:
+        return iter(self.fields)
+
+    def __len__(self) -> int:
+        return len(self.fields)
 
     def __repr__(self) -> str:
         assert self.sub_field_names is not None
@@ -155,206 +152,7 @@ class FieldPhySeries(FieldPhyRoot):
         }
 
 
-@dataclass(frozen=True)
-class TAField(FieldPhySeries):
-    """Transient absorption 常用 pump-probe field."""
-
-    probe_delay_fs: float = 0.0
-
-    @property
-    def probe_delay(self) -> float:
-        """probe 相对于 pump 的延迟，单位 fs。"""
-
-        return float(self.probe_delay_fs)
-
-    @property
-    def pump_tau(self) -> None:
-        """TA 默认只有一个 pump，因此没有 inter-pump delay。"""
-
-        return None
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = super().to_dict()
-        payload["probe_delay_fs"] = float(self.probe_delay_fs)
-        payload["pump_tau_fs"] = None
-        return payload
-
-
-@dataclass(frozen=True)
-class TwoDESField(FieldPhySeries):
-    """2DES 常用 pump1-pump2-probe field."""
-
-    pump_tau_fs: float = 0.0
-    probe_delay_fs: float = 0.0
-
-    @property
-    def probe_delay(self) -> float:
-        """probe 相对于 pump sequence 的延迟，单位 fs。"""
-
-        return float(self.probe_delay_fs)
-
-    @property
-    def pump_tau(self) -> float:
-        """pump1 和 pump2 之间的 inter-pump delay，单位 fs。"""
-
-        return float(self.pump_tau_fs)
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = super().to_dict()
-        payload["probe_delay_fs"] = float(self.probe_delay_fs)
-        payload["pump_tau_fs"] = float(self.pump_tau_fs)
-        return payload
-
-
-def make_ta_gaussian_field(
-    *,
-    probe_delay_fs: float,
-    pump_E0_MV_per_cm: float,
-    probe_E0_MV_per_cm: float,
-    pump_laser_energy_eV: float,
-    probe_laser_energy_eV: float | None = None,
-    pump_center_fs: float = 0.0,
-    pump_sigma_fs: float = 10.0,
-    probe_sigma_fs: float | None = None,
-    pump_phase_rad: float = 0.0,
-    probe_phase_rad: float = 0.0,
-    name: str = "ta_gaussian_field",
-    metadata: dict[str, Any] | None = None,
-) -> TAField:
-    """生成 TA 常用 Gaussian pump-probe field。"""
-
-    probe_laser_energy = pump_laser_energy_eV if probe_laser_energy_eV is None else probe_laser_energy_eV
-    probe_sigma = pump_sigma_fs if probe_sigma_fs is None else probe_sigma_fs
-    probe_center_fs = float(pump_center_fs) + float(probe_delay_fs)
-
-    pump = make_default_gaussian_carrier_field(
-        E0_MV_per_cm=float(pump_E0_MV_per_cm),
-        laser_energy_eV=float(pump_laser_energy_eV),
-        pulse_center_fs=float(pump_center_fs),
-        pulse_sigma_fs=float(pump_sigma_fs),
-        phase_rad=float(pump_phase_rad),
-        name="pump",
-        metadata={"role": "pump", "parent_field": name},
-    )
-    probe = make_default_gaussian_carrier_field(
-        E0_MV_per_cm=float(probe_E0_MV_per_cm),
-        laser_energy_eV=float(probe_laser_energy),
-        pulse_center_fs=probe_center_fs,
-        pulse_sigma_fs=float(probe_sigma),
-        phase_rad=float(probe_phase_rad),
-        name="probe",
-        metadata={"role": "probe", "parent_field": name},
-    )
-
-    payload = _metadata_copy(metadata)
-    payload.setdefault("experiment", "TA")
-    return TAField(
-        fields=(pump, probe),
-        sub_field_names=("pump", "probe"),
-        name=name,
-        metadata=payload,
-        probe_delay_fs=float(probe_delay_fs),
-    )
-
-
-def make_twodes_gaussian_field(
-    *,
-    pump_tau_fs: float,
-    probe_delay_fs: float,
-    pump1_E0_MV_per_cm: float,
-    pump2_E0_MV_per_cm: float,
-    probe_E0_MV_per_cm: float,
-    pump1_laser_energy_eV: float,
-    pump2_laser_energy_eV: float | None = None,
-    probe_laser_energy_eV: float | None = None,
-    pump1_center_fs: float = 0.0,
-    pump1_sigma_fs: float = 10.0,
-    pump2_sigma_fs: float | None = None,
-    probe_sigma_fs: float | None = None,
-    pump1_phase_rad: float = 0.0,
-    pump2_phase_rad: float = 0.0,
-    probe_phase_rad: float = 0.0,
-    name: str = "twodes_gaussian_field",
-    metadata: dict[str, Any] | None = None,
-) -> TwoDESField:
-    """生成 2DES 常用 Gaussian pump1-pump2-probe field。"""
-
-    pump2_laser_energy = pump1_laser_energy_eV if pump2_laser_energy_eV is None else pump2_laser_energy_eV
-    probe_laser_energy = pump1_laser_energy_eV if probe_laser_energy_eV is None else probe_laser_energy_eV
-    pump2_sigma = pump1_sigma_fs if pump2_sigma_fs is None else pump2_sigma_fs
-    probe_sigma = pump1_sigma_fs if probe_sigma_fs is None else probe_sigma_fs
-
-    pump2_center_fs = float(pump1_center_fs) + float(pump_tau_fs)
-    probe_center_fs = pump2_center_fs + float(probe_delay_fs)
-
-    pump1 = make_default_gaussian_carrier_field(
-        E0_MV_per_cm=float(pump1_E0_MV_per_cm),
-        laser_energy_eV=float(pump1_laser_energy_eV),
-        pulse_center_fs=float(pump1_center_fs),
-        pulse_sigma_fs=float(pump1_sigma_fs),
-        phase_rad=float(pump1_phase_rad),
-        name="pump1",
-        metadata={"role": "pump1", "parent_field": name},
-    )
-    pump2 = make_default_gaussian_carrier_field(
-        E0_MV_per_cm=float(pump2_E0_MV_per_cm),
-        laser_energy_eV=float(pump2_laser_energy),
-        pulse_center_fs=pump2_center_fs,
-        pulse_sigma_fs=float(pump2_sigma),
-        phase_rad=float(pump2_phase_rad),
-        name="pump2",
-        metadata={"role": "pump2", "parent_field": name},
-    )
-    probe = make_default_gaussian_carrier_field(
-        E0_MV_per_cm=float(probe_E0_MV_per_cm),
-        laser_energy_eV=float(probe_laser_energy),
-        pulse_center_fs=probe_center_fs,
-        pulse_sigma_fs=float(probe_sigma),
-        phase_rad=float(probe_phase_rad),
-        name="probe",
-        metadata={"role": "probe", "parent_field": name},
-    )
-
-    payload = _metadata_copy(metadata)
-    payload.setdefault("experiment", "2DES")
-    return TwoDESField(
-        fields=(pump1, pump2, probe),
-        sub_field_names=("pump1", "pump2", "probe"),
-        name=name,
-        metadata=payload,
-        pump_tau_fs=float(pump_tau_fs),
-        probe_delay_fs=float(probe_delay_fs),
-    )
-
-
-def iter_ta_gaussian_fields(**kwargs) -> Iterator[tuple[dict[str, Any], TAField]]:
-    """扫描 TA Gaussian field 参数。
-
-    任意非字符串 iterable 参数都会被视作扫描维度；多个 iterable 参数使用
-    Cartesian product。每次 yield `(scan_params, field)`。
-    """
-
-    for params in _iter_scan_params(kwargs):
-        yield params, make_ta_gaussian_field(**params)
-
-
-def iter_twodes_gaussian_fields(**kwargs) -> Iterator[tuple[dict[str, Any], TwoDESField]]:
-    """扫描 2DES Gaussian field 参数。
-
-    任意非字符串 iterable 参数都会被视作扫描维度；多个 iterable 参数使用
-    Cartesian product。每次 yield `(scan_params, field)`。
-    """
-
-    for params in _iter_scan_params(kwargs):
-        yield params, make_twodes_gaussian_field(**params)
-
-
 __all__ = [
     "FieldPhySeries",
-    "TAField",
-    "TwoDESField",
-    "make_ta_gaussian_field",
-    "make_twodes_gaussian_field",
-    "iter_ta_gaussian_fields",
-    "iter_twodes_gaussian_fields",
+    "_metadata_copy",
 ]

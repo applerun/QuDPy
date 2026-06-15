@@ -7,14 +7,14 @@ Internal code-unit diagnostics are still saved, but only under explicit names.
 from __future__ import annotations
 
 import csv
-import json
-from dataclasses import dataclass, fields as dataclass_fields, is_dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from sjh_learn.utils.core.results import DynamicsResult
+from sjh_learn.utils.json_utils import make_json_safe, write_json
 
 
 ResultLike = DynamicsResult
@@ -23,36 +23,9 @@ HC_EV_NM = 1239.8419843320026
 
 
 def _json_safe(value: Any) -> Any:
-    if type(value).__name__ == "ParaNormalizer":
-        return {"class": "ParaNormalizer", "note": "runtime object omitted from JSON metadata"}
-    if type(value).__name__ == "NLevelPhysicalParams":
-        payload = {
-            item.name: getattr(value, item.name)
-            for item in dataclass_fields(value)
-            if item.name != "field"
-        }
-        field_value = getattr(value, "field", None)
-        payload["field"] = None if field_value is None else _json_safe(field_value)
-        return _json_safe(payload)
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return _json_safe(value.to_dict())
-    if is_dataclass(value):
-        return _json_safe({item.name: getattr(value, item.name) for item in dataclass_fields(value)})
-    if isinstance(value, complex):
-        return {"real": float(value.real), "imag": float(value.imag)}
-    if isinstance(value, np.ndarray):
-        if np.iscomplexobj(value):
-            return _json_safe(value.tolist())
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return _json_safe(value.item())
-    if callable(value):
-        return {"callable_serialized": False, "repr": repr(value)}
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    return value
+    """兼容旧内部调用；新代码应直接使用 `make_json_safe`。"""
+
+    return make_json_safe(value)
 
 
 def format_value_tag(value: float) -> str:
@@ -68,7 +41,7 @@ def _physical_field_payload(physical: Any) -> dict[str, Any] | None:
     payload = field.to_dict()
     if not isinstance(payload, dict):
         raise TypeError("field.to_dict() must return a dict.")
-    return _json_safe(payload)
+    return make_json_safe(payload)
 
 
 def _field_metadata_value(physical: Any, key: str) -> Any:
@@ -129,9 +102,8 @@ def default_output_path(output_dir: Path, result: ResultLike) -> Path:
 
 
 def save_parameter_summary(results: list[ResultLike], output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
     data = [result.parameter_summary_dict() for result in results]
-    output.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_json(output, data)
     return output
 
 
@@ -269,7 +241,7 @@ def _channel_name(channel: Any) -> str | None:
 
 
 def _channel_with_rate(channel: Any, solver_channels: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> dict[str, Any]:
-    data = _json_safe(channel)
+    data = make_json_safe(channel)
     if not isinstance(data, dict):
         return {"channel": data}
     if data.get("rate_fs_inv") is None:
@@ -451,13 +423,13 @@ def _field_rebuild_metadata(result: ResultLike, physical: Any) -> dict[str, Any]
 
     explicit_field = getattr(physical, "field", None)
     if explicit_field is not None and hasattr(explicit_field, "to_dict"):
-        return _json_safe(explicit_field.to_dict())
+        return make_json_safe(explicit_field.to_dict())
 
     drive_dict = getattr(result, "drive_dict", None)
     if isinstance(drive_dict, dict):
         source_field = drive_dict.get("source_field")
         if source_field is not None:
-            return _json_safe(source_field)
+            return make_json_safe(source_field)
 
     return None
 
@@ -778,7 +750,7 @@ def _human_metadata(
     meta["sanity_summary"] = _sanity_summary(result)
     meta["component_export"] = _component_export_metadata(result)
     meta["output_files"] = output_files or {}
-    return _json_safe(meta)
+    return make_json_safe(meta)
 
 
 def _debug_metadata(
@@ -843,35 +815,27 @@ def _write_metadata_files(
     output_files = _relative_output_files(case_dir, metadata_outputs)
 
     if save_debug_meta:
-        debug_path.write_text(
-            json.dumps(
-                _debug_metadata(
-                    result,
-                    example_name=example_name,
-                    condition_name=condition_name,
-                    case_name=case_name,
-                ),
-                indent=2,
-                ensure_ascii=False,
+        write_json(
+            debug_path,
+            _debug_metadata(
+                result,
+                example_name=example_name,
+                condition_name=condition_name,
+                case_name=case_name,
             ),
-            encoding="utf-8",
         )
         metadata_paths["debug_meta"] = debug_path
 
     if save_human_meta:
-        meta_path.write_text(
-            json.dumps(
-                _human_metadata(
-                    result,
-                    example_name=example_name,
-                    condition_name=condition_name,
-                    case_name=case_name,
-                    output_files=output_files,
-                ),
-                indent=2,
-                ensure_ascii=False,
+        write_json(
+            meta_path,
+            _human_metadata(
+                result,
+                example_name=example_name,
+                condition_name=condition_name,
+                case_name=case_name,
+                output_files=output_files,
             ),
-            encoding="utf-8",
         )
         metadata_paths["meta"] = meta_path
 

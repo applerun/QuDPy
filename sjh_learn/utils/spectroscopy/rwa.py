@@ -10,7 +10,7 @@ import numpy as np
 
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.constants import DEBYE_TO_C_M
-from .spectra import lab_frame_fft_response_legacy
+from .absorption_spectra import lab_frame_fft_response_legacy
 
 
 def _normalize_for_shape(y: np.ndarray) -> np.ndarray:

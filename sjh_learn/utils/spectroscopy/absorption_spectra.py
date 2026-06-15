@@ -108,7 +108,7 @@ def lab_frame_absorption_response(
 	return response
 
 
-def lab_frame_fft_response(
+def lab_frame_fft_response_legacy(
 		*,
 		t_fs: np.ndarray,
 		E_MV_per_cm: np.ndarray,
@@ -239,7 +239,7 @@ def rwa_fft_response(
 # 旧名称兼容。
 apply_window = apply_time_window
 safe_complex_divide = safe_complex_ratio
-fft_pulse_response = lab_frame_fft_response
+fft_pulse_response = lab_frame_fft_response_legacy
 fft_rwa_response = rwa_fft_response
 
 __all__ = [
@@ -248,7 +248,7 @@ __all__ = [
 	"fft_pulse_response",
 	"fft_rwa_response",
 	"lab_frame_absorption_response",
-	"lab_frame_fft_response",
+	"lab_frame_fft_response_legacy",
 	"rwa_fft_response",
 	"safe_complex_divide",
 	"safe_complex_ratio",

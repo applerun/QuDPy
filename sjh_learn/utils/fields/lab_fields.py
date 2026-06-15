@@ -103,6 +103,52 @@ class FieldPhyRoot(ABC):
 	def rebuild(cls, payload):
 		raise NotImplementedError(f"{cls.__name__}.rebuild() is not implemented.")
 
+	def time_shifted(self, shift_fs: float, *, name: str | None = None):
+		return TimeShiftedField(self, shift_fs = shift_fs, name = name)
+
+
+class TimeShiftedField(FieldPhyRoot):
+	def __init__(self, base_field: FieldPhyRoot, shift_fs: float, name: str | None = None):
+		self.base_field = base_field
+		self.shift_fs = float(shift_fs)
+		base_name = getattr(base_field, "name", base_field.__class__.__name__)
+		self.name = name or f"{base_name}_shifted_{self.shift_fs:g}_fs"
+
+	def physical_E_MV_per_cm(self, t_fs: np.ndarray) -> np.ndarray:
+		t_array = np.asarray(t_fs, dtype = float)
+		return self.base_field.physical_E_MV_per_cm(t_array - self.shift_fs)
+
+	@property
+	def reference_MV_per_cm(self) -> float | None:
+		return self.base_field.reference_MV_per_cm
+
+	@property
+	def normalization_rate_candidates_fs_inv(self) -> tuple[float, ...]:
+		return self.base_field.normalization_rate_candidates_fs_inv
+
+	def __repr__(self) -> str:
+		return f"TimeShiftedField(base_field={self.base_field!r}, shift_fs={self.shift_fs!r})"
+
+	def to_dict(self) -> dict[str, Any]:
+		return {
+			"class": self.__class__.__name__,
+			"repr": repr(self),
+			"base_field": self.base_field.to_dict() if hasattr(self.base_field, "to_dict") else repr(self.base_field),
+			"shift_fs": self.shift_fs,
+			"name": self.name,
+			"time_unit": self.time_unit,
+			"field_unit": self.field_unit,
+			"rebuildable": False,
+			"expression": "E_shifted(t_fs) = E_base(t_fs - shift_fs)",
+		}
+
+	def time_shifted(self, shift_fs: float, *, name: str | None = None):
+		return TimeShiftedField(
+			self.base_field,
+			shift_fs = self.shift_fs + float(shift_fs),
+			name = name,
+		)
+
 
 class FieldPhyCustomed(FieldPhyRoot):
 	"""用户自定义物理电场的推荐基类。

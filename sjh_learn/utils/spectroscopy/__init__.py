@@ -5,18 +5,20 @@
 """
 
 from .observables import DEBYE_TO_C_M, dipole_expectation_D, polarization_C_per_m2
-from .spectra import apply_time_window, lab_frame_fft_response_legacy, rwa_fft_response, safe_complex_ratio
+from .absorption_spectra import apply_time_window, lab_frame_fft_response_legacy, rwa_fft_response, safe_complex_ratio, \
+	lab_frame_absorption_response
 from .theory import EPSILON0_F_PER_M, chi_two_level_linear, gamma2_fs_inv_from_T1_Tphi
 
 __all__ = [
-    "DEBYE_TO_C_M",
-    "EPSILON0_F_PER_M",
-    "apply_time_window",
-    "chi_two_level_linear",
-    "dipole_expectation_D",
-    "gamma2_fs_inv_from_T1_Tphi",
-    "lab_frame_fft_response_legacy",
-    "polarization_C_per_m2",
-    "rwa_fft_response",
-    "safe_complex_ratio",
+	"DEBYE_TO_C_M",
+	"EPSILON0_F_PER_M",
+	"apply_time_window",
+	"chi_two_level_linear",
+	"lab_frame_fft_response_legacy",
+	"dipole_expectation_D",
+	"gamma2_fs_inv_from_T1_Tphi",
+	"polarization_C_per_m2",
+	"rwa_fft_response",
+	"safe_complex_ratio",
+	"lab_frame_absorption_response",
 ]

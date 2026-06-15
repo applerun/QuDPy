@@ -1,38 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
-from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from sjh_learn.utils.core import NLevelPhysicalParams
+from sjh_learn.utils.io import write_json
 from three_level_absorption_lab_exact_casewise_meta import make_three_level_params
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, complex):
-        return {"real": float(value.real), "imag": float(value.imag)}
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    return value
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_json_safe(payload), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -549,7 +524,7 @@ def export_lindblad_gamma_summary(
     }
 
     json_path = output_dir / f"{prefix}.json"
-    _write_json(json_path, payload)
+    write_json(json_path, payload)
 
     fig_path = output_dir / f"{prefix}.png"
 
