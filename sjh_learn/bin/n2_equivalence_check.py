@@ -18,7 +18,6 @@ from sjh_learn.utils.core import (
 from sjh_learn.utils.checks import n2_mainline_equivalence_check
 from sjh_learn.utils.fields import make_default_carrier_field
 
-
 def make_physical_params() -> NLevelPhysicalParams:
     """把旧 N=2 code-unit 检查映射成普通 `NLevelPhysicalParams`。
 
