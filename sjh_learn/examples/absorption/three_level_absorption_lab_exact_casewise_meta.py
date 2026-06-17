@@ -30,7 +30,7 @@ from sjh_learn.utils.plotting import (
 )
 
 
-FORCE_RERUN = False
+FORCE_RERUN = True
 
 
 def make_analysis_from_result(result):

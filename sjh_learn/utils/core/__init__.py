@@ -14,6 +14,7 @@ from .parameters import (
     RelaxationChannel,
     SolverParams,
 )
+from .piecewise_propagation import PieceDynamicsResultSeries
 from .results import DynamicsResult
 from .solvers import (
     make_rotating_view,
@@ -23,6 +24,7 @@ from .solvers import (
 
 __all__ = [
     "DynamicsResult",
+    "PieceDynamicsResultSeries",
     "FORCE_RWA",
     "RWA_DISABLED_MESSAGE",
     "ensure_rwa_enabled",

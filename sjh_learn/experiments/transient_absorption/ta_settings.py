@@ -14,24 +14,12 @@ from typing import Any, Literal, Sequence
 import numpy as np
 
 from sjh_learn.utils.fields.field_windows import FieldActiveWindowSettings
-from sjh_learn.utils.io import make_json_safe
 
 TA_EXPERIMENT_NAME = "ta_piecewise_delay_scan"
 
 TaDelayModePolicy = Literal[
 	"auto",
 	"full_only",
-]
-
-DarkTlistMode = Literal[
-	"endpoints",
-	"coarse",
-]
-
-TaDelayCaseMode = Literal[
-	"full_overlap",
-	"pump_dark_probe",
-	"pure_probe",
 ]
 
 
@@ -263,7 +251,6 @@ if __name__ == "__main__":
 
 	# dataclass -> dict。注意这里应只包含 settings，不包含 field template 或 NLevelPhysicalParams。
 	payload = asdict(settings)
-
 
 	print("\nJSON-like settings preview:")
 	print(json.dumps(make_json_safe(payload), indent = 2, ensure_ascii = False))

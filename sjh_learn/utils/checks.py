@@ -231,7 +231,8 @@ def n2_mainline_equivalence_check(physical_params, normalizer=None) -> dict[str,
     from sjh_learn.utils.core.solvers import run_case
 
     local_normalizer = ParaNormalizer(time_scale_fs=1.0, auto_scale=False) if normalizer is None else normalizer
-    wrapped = run_case(replace(physical_params, solver_mode="lab_exact"), normalizer=local_normalizer)
+    wrapped_series = run_case(replace(physical_params, solver_mode="lab_exact"), normalizer=local_normalizer)
+    wrapped = wrapped_series.stitch()
 
     solver = local_normalizer.normalize(physical_params)
     explicit_params = NLevelSolverParams(

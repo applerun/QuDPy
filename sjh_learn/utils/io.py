@@ -9,15 +9,16 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 
 from sjh_learn.utils.core.results import DynamicsResult
+from sjh_learn.utils.core.piecewise_propagation import PieceDynamicsResultSeries
 from sjh_learn.utils.json_utils import make_json_safe, write_json
 
 
-ResultLike = DynamicsResult
+ResultLike = Union[DynamicsResult, PieceDynamicsResultSeries]
 
 HC_EV_NM = 1239.8419843320026
 
@@ -1079,4 +1080,5 @@ __all__ = [
     "save_results_components_long",
     "save_figure",
     "save_result_case",
+    "make_json_safe"
 ]
