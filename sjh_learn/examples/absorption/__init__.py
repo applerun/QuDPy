@@ -1,0 +1,1 @@
+"""Absorption-related QuDPy examples."""
