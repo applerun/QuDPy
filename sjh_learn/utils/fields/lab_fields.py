@@ -103,6 +103,117 @@ class FieldPhyRoot(ABC):
 	def rebuild(cls, payload):
 		raise NotImplementedError(f"{cls.__name__}.rebuild() is not implemented.")
 
+	def time_shifted(
+			self,
+			shift_fs: float,
+			*,
+			name: str | None = None,
+			metadata: dict[str, Any] | None = None,
+	):
+		return TimeShiftedField(self, shift_fs=shift_fs, name=name, metadata=metadata)
+
+
+class TimeShiftedField(FieldPhyRoot):
+	"""Non-mutating time-shift wrapper for a physical field.
+
+	``shift_fs > 0`` moves the field later in time:
+	``E_shifted(t) = E_original(t - shift_fs)``.
+	"""
+
+	def __init__(
+			self,
+			base_field: FieldPhyRoot,
+			shift_fs: float,
+			*,
+			name: str | None = None,
+			metadata: dict[str, Any] | None = None,
+	):
+		if not isinstance(base_field, FieldPhyRoot):
+			raise TypeError("base_field must be a FieldPhyRoot instance.")
+		self.base_field = base_field
+		self.shift_fs = float(shift_fs)
+		base_name = getattr(base_field, "name", base_field.__class__.__name__)
+		self.name = name or f"{base_name}_shifted_{self.shift_fs:g}_fs"
+		self.metadata = _metadata_copy(metadata)
+
+	@property
+	def reference_MV_per_cm(self) -> float | None:
+		return self.base_field.reference_MV_per_cm
+
+	@property
+	def normalization_rate_candidates_fs_inv(self) -> tuple[float, ...]:
+		return self.base_field.normalization_rate_candidates_fs_inv
+
+	def physical_E_MV_per_cm(self, t_fs: np.ndarray) -> np.ndarray:
+		t_array = np.asarray(t_fs, dtype=float)
+		return self.base_field.physical_E_MV_per_cm(t_array - self.shift_fs)
+
+	def __repr__(self) -> str:
+		return f"TimeShiftedField(base_field={self.base_field!r}, shift_fs={self.shift_fs!r})"
+
+	def to_dict(self) -> dict[str, Any]:
+		base_payload = self.base_field.to_dict() if hasattr(self.base_field, "to_dict") else {}
+		source_name = base_payload.get("name") or getattr(self.base_field, "name", None)
+		metadata = _metadata_copy(self.metadata)
+		metadata.update(
+			{
+				"time_shift_fs": float(self.shift_fs),
+				"source_field_name": source_name,
+				"source_field_repr": repr(self.base_field),
+				"shift_rule": "E_shifted(t) = E_original(t - shift_fs)",
+			}
+		)
+		payload = {
+			"class": self.__class__.__name__,
+			"repr": repr(self),
+			"name": self.name,
+			"time_unit": self.time_unit,
+			"field_unit": self.field_unit,
+			"rebuildable": False,
+			"time_shift_fs": float(self.shift_fs),
+			"source_field_name": source_name,
+			"source_field_repr": repr(self.base_field),
+			"source_field": base_payload if base_payload else repr(self.base_field),
+			"shift_rule": "E_shifted(t) = E_original(t - shift_fs)",
+			"expression": "E_shifted(t_fs) = E_original(t_fs - shift_fs)",
+			"metadata": metadata,
+		}
+		if "center_fs" in base_payload:
+			payload["center_fs"] = float(base_payload["center_fs"]) + float(self.shift_fs)
+		if "pulse_center_fs" in base_payload:
+			payload["pulse_center_fs"] = float(base_payload["pulse_center_fs"]) + float(self.shift_fs)
+		if "sigma_fs" in base_payload:
+			payload["sigma_fs"] = base_payload["sigma_fs"]
+		if "pulse_sigma_fs" in base_payload:
+			payload["pulse_sigma_fs"] = base_payload["pulse_sigma_fs"]
+		if "omega_L_fs_inv" in base_payload:
+			payload["omega_L_fs_inv"] = base_payload["omega_L_fs_inv"]
+		if "laser_energy_eV" in base_payload:
+			payload["laser_energy_eV"] = base_payload["laser_energy_eV"]
+		if "phase_rad" in base_payload:
+			payload["phase_rad"] = base_payload["phase_rad"]
+		if "E0_MV_per_cm" in base_payload:
+			payload["E0_MV_per_cm"] = base_payload["E0_MV_per_cm"]
+		if "peak_E_MV_per_cm" in base_payload:
+			payload["peak_E_MV_per_cm"] = base_payload["peak_E_MV_per_cm"]
+		return payload
+
+	def time_shifted(
+			self,
+			shift_fs: float,
+			*,
+			name: str | None = None,
+			metadata: dict[str, Any] | None = None,
+	):
+		combined_metadata = _metadata_copy(self.metadata)
+		combined_metadata.update(_metadata_copy(metadata))
+		return TimeShiftedField(
+			self.base_field,
+			shift_fs=self.shift_fs + float(shift_fs),
+			name=name,
+			metadata=combined_metadata,
+		)
+
 
 class FieldPhyCustomed(FieldPhyRoot):
 	"""用户自定义物理电场的推荐基类。
@@ -412,6 +523,7 @@ __all__ = [
 	"FieldPhyCustomed",
 	"CarrierFieldPhysical",
 	"GaussianCarrierFieldPhysical",
+	"TimeShiftedField",
 	"make_default_carrier_field",
 	"make_default_gaussian_carrier_field",
 	"rebuild_physical_field",
