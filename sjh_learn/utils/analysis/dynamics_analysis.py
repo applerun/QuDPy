@@ -16,10 +16,7 @@ import numpy as np
 
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.core.results import DynamicsResult
-from .observables import (
-    dipole_expectation_D,
-    polarization_C_per_m2 as observable_polarization_C_per_m2,
-)
+from sjh_learn.utils.spectroscopy.observables import DEBYE_TO_C_M, dipole_expectation_D, polarization_C_per_m2
 
 
 def _require_pandas():
@@ -250,7 +247,7 @@ class DynamicsAnalysis:
             raise ValueError("physical_params is required to compute polarization.")
         if not hasattr(physical, "dipole_matrix_D"):
             raise ValueError("physical_params.dipole_matrix_D is required.")
-        polarization = observable_polarization_C_per_m2(
+        polarization = polarization_C_per_m2(
             self.result.density_array(),
             physical.dipole_matrix_D,
             _require_number_density(number_density_m3),

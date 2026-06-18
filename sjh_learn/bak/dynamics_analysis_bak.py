@@ -16,7 +16,8 @@ import numpy as np
 
 from sjh_learn.utils.core.normalization import ParaNormalizer
 from sjh_learn.utils.core.results import DynamicsResult
-from sjh_learn.utils.analysis.observables import DEBYE_TO_C_M, dipole_expectation_D
+from sjh_learn.utils.constants import DEBYE_TO_C_M
+from sjh_learn.utils.spectroscopy.observables import dipole_expectation_D
 
 
 def _require_pandas():
