@@ -1,4 +1,4 @@
-import sys
+from pathlib import Path
 import unittest
 
 import numpy as np
@@ -95,14 +95,20 @@ class PumpProbeFieldTemplateTests(unittest.TestCase):
         self.assertAlmostEqual(field.to_dict()["metadata"]["delay_fs"], 100.0)
         self.assertAlmostEqual(field["pump"].to_dict()["time_shift_fs"], -100.0)
 
-    def test_no_ta_workflow_or_piecewise_modules_imported(self):
+    def test_field_modules_do_not_depend_on_ta_workflow_or_piecewise(self):
+        field_root = Path(__file__).parents[1] / "fields"
+        source = "\n".join(path.read_text(encoding="utf-8") for path in field_root.rglob("*.py"))
         forbidden = (
             "sjh_learn.experiments.transient_absorption",
-            "sjh_learn.utils.core.piecewise_propagation",
-            "sjh_learn.utils.core.dark_propagation",
+            "piecewise_propagation",
+            "dark_propagation",
+            "PieceDynamicsResultSeries",
+            "execute_piece_sequence",
+            "materialize_full",
+            "piecewise=",
         )
-        for module_name in forbidden:
-            self.assertNotIn(module_name, sys.modules)
+        for token in forbidden:
+            self.assertNotIn(token, source)
 
 
 if __name__ == "__main__":
