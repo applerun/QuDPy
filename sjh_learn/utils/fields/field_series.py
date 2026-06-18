@@ -257,6 +257,90 @@ def make_ta_gaussian_field(
     )
 
 
+def make_pump_probe_field_from_templates(
+    *,
+    pump_template: FieldPhyRoot,
+    probe_template: FieldPhyRoot,
+    delay_fs: float,
+    probe_center_fs: float = 0.0,
+    name: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> TAField:
+    """Build a pump-probe field by time-shifting zero-centered templates.
+
+    The probe is fixed at ``probe_center_fs`` and the pump is placed by
+    ``pump_center_fs = probe_center_fs - delay_fs``.
+    """
+
+    if not isinstance(pump_template, FieldPhyRoot):
+        raise TypeError("pump_template must be a FieldPhyRoot instance.")
+    if not isinstance(probe_template, FieldPhyRoot):
+        raise TypeError("probe_template must be a FieldPhyRoot instance.")
+
+    delay = float(delay_fs)
+    probe_center = float(probe_center_fs)
+    pump_center = probe_center - delay
+    field_name = name or "pump_probe_template_field"
+
+    pump = pump_template.time_shifted(
+        pump_center,
+        name="pump",
+        metadata={"role": "pump", "parent_field": field_name},
+    )
+    probe = probe_template.time_shifted(
+        probe_center,
+        name="probe",
+        metadata={"role": "probe", "parent_field": field_name},
+    )
+
+    payload = _metadata_copy(metadata)
+    payload.setdefault("experiment", "TA")
+    payload.update(
+        {
+            "delay_fs": delay,
+            "probe_delay_fs": delay,
+            "probe_center_fs": probe_center,
+            "pump_center_fs": pump_center,
+            "center_rule": "pump_center_fs = probe_center_fs - delay_fs",
+            "template_convention": "pump/probe templates are expected to be centered at 0 fs.",
+        }
+    )
+    return TAField(
+        fields=(pump, probe),
+        sub_field_names=("pump", "probe"),
+        name=field_name,
+        metadata=payload,
+        probe_delay_fs=delay,
+    )
+
+
+def make_ta_field_from_templates(
+    *,
+    pump_template: FieldPhyRoot,
+    probe_template: FieldPhyRoot,
+    probe_delay_fs: float | None = None,
+    delay_fs: float | None = None,
+    probe_center_fs: float = 0.0,
+    name: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> TAField:
+    """Compatibility alias for template-based TA pump-probe fields."""
+
+    if delay_fs is None and probe_delay_fs is None:
+        raise TypeError("Either delay_fs or probe_delay_fs must be provided.")
+    if delay_fs is not None and probe_delay_fs is not None and float(delay_fs) != float(probe_delay_fs):
+        raise ValueError("delay_fs and probe_delay_fs must agree when both are provided.")
+    delay = float(delay_fs if delay_fs is not None else probe_delay_fs)
+    return make_pump_probe_field_from_templates(
+        pump_template=pump_template,
+        probe_template=probe_template,
+        delay_fs=delay,
+        probe_center_fs=probe_center_fs,
+        name=name,
+        metadata=metadata,
+    )
+
+
 def make_twodes_gaussian_field(
     *,
     pump_tau_fs: float,
@@ -353,6 +437,8 @@ __all__ = [
     "FieldPhySeries",
     "TAField",
     "TwoDESField",
+    "make_pump_probe_field_from_templates",
+    "make_ta_field_from_templates",
     "make_ta_gaussian_field",
     "make_twodes_gaussian_field",
     "iter_ta_gaussian_fields",

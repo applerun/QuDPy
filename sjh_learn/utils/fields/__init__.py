@@ -20,6 +20,8 @@ from .field_series import (
     TwoDESField,
     iter_ta_gaussian_fields,
     iter_twodes_gaussian_fields,
+    make_pump_probe_field_from_templates,
+    make_ta_field_from_templates,
     make_ta_gaussian_field,
     make_twodes_gaussian_field,
 )
@@ -36,6 +38,8 @@ __all__ = [
     "FieldPhySeries",
     "TAField",
     "TwoDESField",
+    "make_pump_probe_field_from_templates",
+    "make_ta_field_from_templates",
     "make_ta_gaussian_field",
     "make_twodes_gaussian_field",
     "iter_ta_gaussian_fields",
